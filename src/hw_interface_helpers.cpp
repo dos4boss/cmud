@@ -26,6 +26,16 @@ namespace hw_interface {
     return (data & bit_mask) >> bit_offset;
   }
 
+  void set_bitstream_value(uint32_t &data, const uint8_t bit_length,
+                           const uint8_t bit_offset, const uint32_t value) {
+    auto bit_mask = bitmask<uint32_t>(bit_length);
+    if(value > bit_mask)
+      throw std::runtime_error("Value is too big to be set...");
+
+    auto shifted_bitmask = bit_mask << bit_offset;
+    data = (data & ~shifted_bitmask) | ((value & bit_mask) << bit_offset);
+  }
+
   void read_switch(const std::string &switch_name, std::ostream &out) {
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
                                [switch_name](const switch_info &sw_info) {
@@ -55,7 +65,7 @@ namespace hw_interface {
     else {
       auto switch_trans = std::find_if(result->translation->begin(),
                                        result->translation->end(),
-                                       [bitstream_value](const switch_translation& trans) {
+                                       [&bitstream_value](const switch_translation& trans) {
                                          return trans.bitstream_value == bitstream_value;
                                        });
       if(switch_trans == result->translation->end())
@@ -63,6 +73,35 @@ namespace hw_interface {
       else
         out << "Discrete Value: " << switch_trans->name << std::endl;
     }
+  }
+
+  void write_switch(const std::string &switch_name, const std::string &switch_state, std::ostream &out) {
+    auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
+                               [switch_name](const switch_info &sw_info) {
+                                 return sw_info.name == switch_name;
+                               });
+    if (result == switch_infos.end()) {
+      out << "Switch is invalid" << std::endl;
+      return;
+    }
+
+    if(result->type == switch_type::CONTINUOUS) {
+      out << "Only discrete switches can be set with string value" << std::endl;
+      return;
+    }
+
+    auto switch_trans =
+        std::find_if(result->translation->begin(), result->translation->end(),
+                     [&switch_state](const switch_translation &trans) {
+                       return trans.name  == switch_state;
+                     });
+    if (switch_trans == result->translation->end())
+      out << "Invalid switch state for selected switch " << std::endl; // TODO "must be one of the following"
+    else
+      set_bitstream_value(stream_infos[result->stream_id].data,
+                          result->bit_length,
+                          result->bit_position,
+                          switch_trans->bitstream_value);
   }
 
 }; // namespace hw_interface
