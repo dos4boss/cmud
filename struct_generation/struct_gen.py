@@ -234,8 +234,12 @@ with open('hw_interface.cpp', 'w') as f:
     for k in range(len(struct_values)):
         translation_vec_name = translation_names[struct_values[k][7]].lower()
         stream_name = stream_data[struct_values[k][4]][1]
+        if struct_values[k][5] == 0:
+            switch_type = 'DISCRETE'
+        else:
+            switch_type = 'CONTINUOUS'
         f.write(f'  {{ {switch_names[k]}, "{switch_names[k]}", {struct_values[k][2]}, {struct_values[k][3]},\n'
-                f'     {stream_name}, {struct_values[k][5]}, {struct_values[k][6]},\n'
+                f'     {stream_name}, {switch_type}, {struct_values[k][6]},\n'
                 f'     &{translation_vec_name}, {struct_values[k][8]}, {struct_values[k][9]} }},\n')
     f.write('};\n\n\n')
 
@@ -280,13 +284,18 @@ with open("hw_interface.hpp", "w") as f:
 
     f.write('enum switch_id : uint32_t;\nenum stream_id : uint32_t;\nstruct switch_translation;\n\n')
 
+    f.write('enum switch_type {\n'
+            'DISCRETE,\n'
+            'CONTINUOUS\n'
+            '};\n\n\n')
+
     f.write('struct switch_info {\n'
             '  enum switch_id switch_id;\n'
             '  char const *name;\n'
             '  uint8_t bit_length;\n'
             '  uint8_t bit_position;\n'
             '  enum stream_id stream_id;\n'
-            '  uint32_t type;\n'
+            '  enum switch_type type;\n'
             '  uint8_t state_max_count;\n'
             '  const std::vector<switch_translation> *translation;\n'
             '  uint32_t continuous_min;\n'

@@ -15,11 +15,7 @@ int main()
 
   rootMenu->Insert("hsd_rd",
                    [](std::ostream &out, std::string switch_name) {
-                     if(hw_interface::is_valid_switch(switch_name))
-                       out << "Valid" << "\n";
-                     else
-                       out << "Invalid"
-                           << "\n";
+                     hw_interface::read_switch(switch_name, out);
                    },
                    "Print the sum of the three numbers");
 

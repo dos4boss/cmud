@@ -10,13 +10,19 @@ enum switch_id : uint32_t;
 enum stream_id : uint32_t;
 struct switch_translation;
 
+enum switch_type {
+DISCRETE,
+CONTINUOUS
+};
+
+
 struct switch_info {
   enum switch_id switch_id;
   char const *name;
   uint8_t bit_length;
   uint8_t bit_position;
   enum stream_id stream_id;
-  uint32_t type;
+  enum switch_type type;
   uint8_t state_max_count;
   const std::vector<switch_translation> *translation;
   uint32_t continuous_min;
