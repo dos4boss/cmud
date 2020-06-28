@@ -9,15 +9,23 @@
 
 int main()
 {
+  hw_interface::init();
+
   cli::SetColor();
 
   auto rootMenu = std::make_unique<cli::Menu>("cmud");
 
   rootMenu->Insert("hsd_rd",
-                   [](std::ostream &out, std::string switch_name) {
+                   [](std::ostream &out, const std::string switch_name) {
                      hw_interface::read_switch(switch_name, out);
                    },
-                   "Print the sum of the three numbers");
+                   "Read switch");
+
+  rootMenu->Insert("hsd_wr",
+                   [](std::ostream &out, const std::string switch_name, const std::string switch_state) {
+                     hw_interface::write_switch(switch_name, switch_state, out);
+                   },
+                   "Write switch");
 
   //rootMenu->Insert("?", [&rootMenu](std::ostream& out) { rootMenu->Help(out); });
 

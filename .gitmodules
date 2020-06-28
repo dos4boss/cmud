@@ -1,3 +1,6 @@
 [submodule "cli"]
 	path = cli
 	url = https://github.com/daniele77/cli.git
+[submodule "ansi-color-kit"]
+	path = ansi-color-kit
+	url = https://github.com/bliffy/ansi-color-kit.git

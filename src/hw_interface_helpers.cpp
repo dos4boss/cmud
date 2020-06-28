@@ -1,10 +1,13 @@
 #include "hw_interface_helpers.hpp"
 #include "hw_interface.hpp"
+#include "output_helpers.hpp"
+#include "../ansi-color-kit/ansicolorkit.h"
 
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
 #include <climits>
+#include <string>
 
 namespace hw_interface {
 
@@ -36,13 +39,21 @@ namespace hw_interface {
     data = (data & ~shifted_bitmask) | ((value & bit_mask) << bit_offset);
   }
 
+
+  void init(void) {
+    for(const auto & stream_info : stream_infos)
+      *(stream_info.data) = stream_info.default_data;
+  }
+
   void read_switch(const std::string &switch_name, std::ostream &out) {
+    RAIIStreamReconstructor stream_recon(out);
+
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
                                [switch_name](const switch_info &sw_info) {
                                  return sw_info.name == switch_name;
                                });
     if (result == switch_infos.end()) {
-      out << "Switch is invalid" << std::endl;
+      out << ansi::foreground::RED << "Switch is invalid" << std::endl;
       return;
     }
 
@@ -50,12 +61,13 @@ namespace hw_interface {
          interface_mode::IO_PORTS) &&
         (stream_infos[result->stream_id].interface_mode !=
          interface_mode::MMIO)) {
-      out << "Currently only I/O ports and MMIO is supported" << std::endl;
+      out << ansi::foreground::RED
+          << "Currently only I/O ports and MMIO is supported" << std::endl;
       return;
     }
 
     auto bitstream_value =
-      get_bitstream_value(stream_infos[result->stream_id].data,
+      get_bitstream_value(*stream_infos[result->stream_id].data,
                           result->bit_length,
                           result->bit_position);
 
@@ -69,13 +81,16 @@ namespace hw_interface {
                                          return trans.bitstream_value == bitstream_value;
                                        });
       if(switch_trans == result->translation->end())
-        out << "Invalid switch value in bitstream" << std::endl;
+        out << ansi::foreground::RED << "Invalid switch value in bitstream"
+            << std::endl;
       else
         out << "Discrete Value: " << switch_trans->name << std::endl;
     }
   }
 
   void write_switch(const std::string &switch_name, const std::string &switch_state, std::ostream &out) {
+    RAIIStreamReconstructor stream_recon(out);
+
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
                                [switch_name](const switch_info &sw_info) {
                                  return sw_info.name == switch_name;
@@ -86,22 +101,52 @@ namespace hw_interface {
     }
 
     if(result->type == switch_type::CONTINUOUS) {
-      out << "Only discrete switches can be set with string value" << std::endl;
+      unsigned long cont_value;
+      try {
+        cont_value = std::stoul(switch_state, 0, 0);
+      }
+      catch(const std::invalid_argument &e){
+        out << ansi::foreground::RED << "Could not create a valid value for input '"
+            << switch_state << "' (" << e.what() << ")." << std::endl;
+        return;
+      } catch (const std::out_of_range &e) {
+        out << ansi::foreground::RED << "Input value '" << switch_state
+            << "' does not fit in data size (" << e.what() << ")." << std::endl;
+        return;
+      }
+
+      if((result->continuous_min > cont_value) || (result->continuous_max < cont_value)) {
+        out << ansi::foreground::RED << "Input value has to be between "
+            << result->continuous_min << " (0x" << std::hex
+            << result->continuous_min << ") and " << std::dec
+            << result->continuous_max << " (0x" << std::hex
+            << result->continuous_max << ")" << ansi::RESET << std::endl;
+            return;
+      }
+
+      out << "Only discrete switches can be set with string value " << cont_value << std::endl;
       return;
     }
+    else if (result->type == switch_type::DISCRETE) {
+      auto switch_trans =
+          std::find_if(result->translation->begin(), result->translation->end(),
+                       [&switch_state](const switch_translation &trans) {
+                         return trans.name == switch_state;
+                       });
+      if (switch_trans == result->translation->end()) {
+        out << ansi::foreground::RED
+            << "Invalid switch state for selected switch."
+            << std::endl;
+        out << "Valid values would be:" << std::endl;
+        for(const auto & switch_translation : *result->translation)
+          out << "\t" << switch_translation.name << std::endl;
+      }
+      else
+        set_bitstream_value(*stream_infos[result->stream_id].data,
+                            result->bit_length, result->bit_position,
+                            switch_trans->bitstream_value);
+    }
 
-    auto switch_trans =
-        std::find_if(result->translation->begin(), result->translation->end(),
-                     [&switch_state](const switch_translation &trans) {
-                       return trans.name  == switch_state;
-                     });
-    if (switch_trans == result->translation->end())
-      out << "Invalid switch state for selected switch " << std::endl; // TODO "must be one of the following"
-    else
-      set_bitstream_value(stream_infos[result->stream_id].data,
-                          result->bit_length,
-                          result->bit_position,
-                          switch_trans->bitstream_value);
   }
 
 }; // namespace hw_interface

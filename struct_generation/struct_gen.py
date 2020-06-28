@@ -243,6 +243,8 @@ with open('hw_interface.cpp', 'w') as f:
                 f'     &{translation_vec_name}, {struct_values[k][8]}, {struct_values[k][9]} }},\n')
     f.write('};\n\n\n')
 
+    f.write('uint32_t stream_data[{:}];\n\n\n'.format(len(stream_data)))
+
     f.write('const std::vector<stream_info> stream_infos = {\n')
     for k in range(len(stream_data)):
         if stream_data[k][0] != k:
@@ -270,8 +272,8 @@ with open('hw_interface.cpp', 'w') as f:
             access_width = 'DWORD'
 
         default_value = stream_data[k][5] if stream_data[k][5] is not None else 0
-        f.write(f'  {{ {stream_data[k][1]}, "{stream_data[k][1]}", {stream_data[k][3]}, {stream_data[k][4]}, 0x{default_value:04X},\n'
-                f'     {interface_mode}, 0x{address:04X}, {access_width} }},\n')
+        f.write(f'  {{ {stream_data[k][1]}, "{stream_data[k][1]}", {stream_data[k][3]}, {stream_data[k][4]} /* length */, 0x{default_value:04X} /* default_data */, &stream_data[{k}],\n'
+                f'     {interface_mode}, 0x{address:04X} /* address */, {access_width} /* access width */ }},\n')
     f.write('};')
 
     f.write('}; // namespace hw_interface')
@@ -326,14 +328,15 @@ with open("hw_interface.hpp", "w") as f:
             '  char const *name;\n'
             '  uint8_t flag;\n'
             '  uint8_t length;\n'
-            '  uint32_t data;\n'
+            '  uint32_t default_data;\n'
+            '  uint32_t *data;\n'
             '  enum interface_mode interface_mode;\n'
             '  uint32_t address;\n'
             '  enum access_width access_width;\n'
             '};\n\n\n')
 
     f.write('extern const std::vector<switch_info> switch_infos;\n'
-            'extern const std::vector<stream_info> stream_infos;\n')
+            'extern const std::vector<stream_info> stream_infos;\n\n\n\n')
 
     f.write('enum switch_id : uint32_t {\n')
     for line in switch_data:

@@ -57,7 +57,8 @@ struct stream_info {
   char const *name;
   uint8_t flag;
   uint8_t length;
-  uint32_t data;
+  uint32_t default_data;
+  uint32_t *data;
   enum interface_mode interface_mode;
   uint32_t address;
   enum access_width access_width;
@@ -66,6 +67,9 @@ struct stream_info {
 
 extern const std::vector<switch_info> switch_infos;
 extern const std::vector<stream_info> stream_infos;
+
+
+
 enum switch_id : uint32_t {
   HSD_SW_REF_DIAG_SEL=0,
   HSD_SW_REF_DIAG=1,
