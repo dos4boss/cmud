@@ -4,3 +4,6 @@
 [submodule "ansi-color-kit"]
 	path = ansi-color-kit
 	url = https://github.com/bliffy/ansi-color-kit.git
+[submodule "gsl-lite"]
+	path = gsl-lite
+	url = https://github.com/gsl-lite/gsl-lite.git
