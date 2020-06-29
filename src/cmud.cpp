@@ -4,11 +4,11 @@
 #include <cli/clilocalsession.h>
 #include <cli/cli.h>
 #include <cli/filehistorystorage.h>
+#include <cli/clifilesession.h>
 
 #include "hw_interface_helpers.hpp"
 
-int main()
-{
+int main(int argc, char *argv[]) {
   hw_interface::init();
 
   cli::SetColor();
@@ -23,9 +23,15 @@ int main()
 
   rootMenu->Insert("hsd_wr",
                    [](std::ostream &out, const std::string switch_name, const std::string switch_state) {
+
                      hw_interface::write_switch(switch_name, switch_state, out);
                    },
                    "Write switch");
+
+  rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
+    out << "Sleeping for " << seconds << " seconds." << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(seconds));
+  });
 
   //rootMenu->Insert("?", [&rootMenu](std::ostream& out) { rootMenu->Help(out); });
 
@@ -36,20 +42,30 @@ int main()
   // the history of all the sessions, until the cli is shut down.
   cli::Cli cli(std::move(rootMenu), std::make_unique<cli::FileHistoryStorage>(".cmud.history"));
 
-  cli::CliLocalTerminalSession localSession(cli, std::cout, 200);
+  if(argc < 2) {
+    cli::CliLocalTerminalSession localSession(cli, std::cout, 200);
 
-  bool running = true;
+    bool running = true;
 
-  localSession.ExitAction([&running](auto& out)
-                          {
-                            out << "Thanks for using this cmud port. Exiting application now...\n";
-                            running = false;
-                          });
+    localSession.ExitAction([&running](auto& out)
+                            {
+                              out << "Thanks for using this cmud port. Exiting application now...\n";
+                              running = false;
+                            });
 
-  while(running)
-  {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    while(running) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+  }
+  else {
+    std::ifstream infile(argv[1]);
+    if(!infile) {
+      std::cout << "Could not open file '" << argv[1] << "'" << std::endl;
+      return EXIT_FAILURE;
+    }
+    cli::CliFileSession fileSession(cli, infile, std::cout);
+    fileSession.Start();
   }
 
-  return 0;
+  return EXIT_SUCCESS;
 }

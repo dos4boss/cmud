@@ -58,16 +58,86 @@ namespace hw_interface {
             std::cout << ansi::foreground::RED
                       << "[I/O Ports] Out of Memory during access request for address "
                       << stream_info.address << std::endl;
-            exit(1);
+            exit(EXIT_FAILURE);
           } else if (errno == EPERM) {
             std::cout << ansi::foreground::RED
                       << "[I/O Ports] Permission denied on access request. Make "
               "sure to run as root. "
                       << std::endl;
-            exit(1);
+            exit(EXIT_FAILURE);
           }
         }
       }
+    }
+  }
+
+  uint32_t read_io(const uint32_t address, uint32_t &value, const uint8_t length,
+                   enum access_width access_width, std::ostream &out) {
+    switch (access_width) {
+    case access_width::BYTE: {
+      if (length != 1) {
+        out << ansi::foreground::RED
+            << "Byte access is usually only done for 1 byte long streams."
+            << std::endl;
+        return EXIT_FAILURE;
+      }
+      const auto read_value = inb(address);
+      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x"
+          << std::hex << +read_value << " @ 0x" << address << std::endl;
+      value = read_value;
+      break;
+    }
+
+    case access_width::WORD: {
+      if (length != 2) {
+        out << ansi::foreground::RED
+            << "Word access is usually only done for 2 byte long streams."
+            << std::endl;
+        return EXIT_FAILURE;
+      }
+      const auto read_value = inw(address);
+      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x" << std::hex
+          << read_value << " @ 0x" << address << std::endl;
+      value = read_value;
+      break;
+    }
+
+    case access_width::DWORD: {
+      if (length != 2) {
+        out << ansi::foreground::RED
+            << "Word access is usually only done for 2 byte long streams."
+            << std::endl;
+        return EXIT_FAILURE;
+      }
+      const auto read_value = inl(address);
+      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x" << std::hex
+          << read_value << " @ 0x" << address << std::endl;
+      value = read_value;
+      break;
+    }
+
+    default:
+      out << ansi::foreground::RED
+          << "[I/O Ports] Access mode currently not supported." << std::endl;
+    }
+    return EXIT_SUCCESS;
+  }
+
+  uint32_t flush_switch_in(enum switch_id switch_id, std::ostream &out) {
+    if (switch_id >= switch_infos.size()) {
+      out << ansi::foreground::RED << "Invalid switch id" << std::endl;
+      return EXIT_FAILURE;
+    }
+    const auto &stream_info = stream_infos[switch_infos[switch_id].stream_id];
+    switch (stream_info.interface_mode) {
+    case interface_mode::IO_PORTS:
+      return read_io(stream_info.address, *(stream_info.data), stream_info.length,
+                     stream_info.access_width, out);
+      break;
+    default:
+      out << ansi::foreground::RED << "Interface mode not supported"
+          << std::endl;
+      return EXIT_FAILURE;
     }
   }
 
@@ -83,13 +153,9 @@ namespace hw_interface {
       return;
     }
 
-
-    if ((stream_infos[result->stream_id].interface_mode !=
-         interface_mode::IO_PORTS) &&
-        (stream_infos[result->stream_id].interface_mode !=
-         interface_mode::MMIO)) {
-      out << ansi::foreground::RED
-          << "Currently only I/O ports and MMIO is supported" << std::endl;
+    const auto flush_result = flush_switch_in(result->switch_id, out);
+    if(flush_result != EXIT_SUCCESS) {
+      out << ansi::foreground::RED << "Failed to read switch from hardware." << std::endl;
       return;
     }
 
@@ -117,21 +183,52 @@ namespace hw_interface {
 
   void write_io(const uint32_t address, const uint32_t value, const uint8_t length, enum access_width access_width, std::ostream &out) {
     switch(access_width) {
-    case access_width::BYTE:
+    case access_width::BYTE: {
       if(length != 1) {
         out << ansi::foreground::RED << "Byte access is usually only done for 1 byte long streams." << std::endl;
         return;
       }
-      outb(address, gsl::narrow<uint8_t>(value));
+      const auto sized_value = gsl::narrow<uint8_t>(value);
       out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x" << std::hex
-          << +gsl::narrow<uint8_t>(value) << " @ 0x" << address << std::endl;
-        break;
+          << +sized_value << " @ 0x" << address << std::endl;
+      outb(sized_value,  address);
+      break;
+    }
+
+    case access_width::WORD: {
+      if (length != 2) {
+        out << ansi::foreground::RED
+            << "Word access is usually only done for 2 byte long streams."
+            << std::endl;
+        return;
+      }
+      const auto sized_value = gsl::narrow<uint16_t>(value);
+      out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x"
+          << std::hex << sized_value << " @ 0x" << address << std::endl;
+      outw(sized_value, address);
+      break;
+    }
+
+    case access_width::DWORD: {
+      if (length != 4) {
+        out << ansi::foreground::RED
+            << "Dword access is usually only done for 4 byte long streams."
+            << std::endl;
+        return;
+      }
+      const auto sized_value = gsl::narrow<uint32_t>(value);
+      out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x"
+          << std::hex << sized_value << " @ 0x" << address << std::endl;
+      outl(sized_value, address);
+      break;
+    }
+
     default:
       out << ansi::foreground::RED << "[I/O Ports] Access mode currently not supported." << std::endl;
     }
   }
 
-  void flush_switch(enum switch_id switch_id, std::ostream &out) {
+  void flush_switch_out(enum switch_id switch_id, std::ostream &out) {
     if(switch_id >= switch_infos.size()) {
       out << ansi::foreground::RED << "Invalid switch id" << std::endl;
       return;
@@ -181,9 +278,9 @@ namespace hw_interface {
             << result->continuous_max << ")" << ansi::RESET << std::endl;
             return;
       }
-
-      out << "Only discrete switches can be set with string value " << cont_value << std::endl;
-      return;
+      set_bitstream_value(*stream_infos[result->stream_id].data,
+                          result->bit_length, result->bit_position,
+                          cont_value);
     }
     else if (result->type == switch_type::DISCRETE) {
       auto switch_trans =
@@ -204,7 +301,7 @@ namespace hw_interface {
                             result->bit_length, result->bit_position,
                             switch_trans->bitstream_value);
     }
-    flush_switch(result->switch_id, out);
+    flush_switch_out(result->switch_id, out);
   }
 
 }; // namespace hw_interface
