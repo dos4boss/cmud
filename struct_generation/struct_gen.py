@@ -227,7 +227,7 @@ with open('hw_interface.cpp', 'w') as f:
         f.write(f'static const std::vector<switch_translation> {vec_name.lower()} = {{\n')
         for sub_trans in unique_translation:
             name = sub_trans[2].decode()
-            f.write(f'  {{ "{name}", 0x{int(sub_trans[1]):08X}, 0x{int(sub_trans[3]):04X} }},\n')
+            f.write(f'  {{ "{name}", {name}, 0x{int(sub_trans[3]):04X} }},\n')
         f.write('};\n\n')
 
     f.write('const std::vector<switch_info> switch_infos = {\n')
@@ -346,6 +346,12 @@ with open("hw_interface.hpp", "w") as f:
     f.write('enum stream_id : uint32_t {\n')
     for line in stream_data:
         f.write('  ' + line[1] + '=' + str(line[0]) + ',\n')
+    f.write('};\n\n')
+
+    f.write('enum switch_status : uint32_t {\n')
+    for id_ in range(max_id + 1):
+        if id_ in id_map:
+            f.write('  ' + id_map[id_] + '=' + str(id_) + ',\n')
     f.write('};\n\n')
 
     f.write('}; // namespace hw_interface')

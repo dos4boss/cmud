@@ -48,7 +48,7 @@ namespace hw_interface {
     for(const auto & stream_info : stream_infos) {
       *(stream_info.data) = stream_info.default_data;
       if(stream_info.interface_mode == interface_mode::IO_PORTS) {
-        auto return_value = ioperm(stream_info.address, 0x01, 1);
+        auto return_value = ioperm(stream_info.address, stream_info.length, 1);
         if(return_value != 0) {
           std::cout << "ret_val " << return_value << std::strerror(errno) << std::endl;
           if(errno == EINVAL)
@@ -141,7 +141,51 @@ namespace hw_interface {
     }
   }
 
-  void read_switch(const std::string &switch_name, std::ostream &out) {
+
+  std::optional<uint32_t> read_switch(const switch_id &switch_id, std::ostream &out) {
+    RAIIStreamReconstructor stream_recon(out);
+    const auto &switch_info = switch_infos[switch_id];
+    if (switch_info.switch_id != switch_id) {
+      out << ansi::foreground::RED << "Invalid switch_id."
+          << std::endl;
+      return std::nullopt;
+    }
+
+    const auto flush_result = flush_switch_in(switch_info.switch_id, out);
+    if(flush_result != EXIT_SUCCESS) {
+      out << ansi::foreground::RED << "Failed to read switch from hardware." << std::endl;
+      return std::nullopt;
+    }
+
+    auto bitstream_value =
+      get_bitstream_value(*stream_infos[switch_info.stream_id].data,
+                          switch_info.bit_length,
+                          switch_info.bit_position);
+
+    if(switch_info.type == switch_type::CONTINUOUS) {
+      out << "Continuous Value: " << bitstream_value << std::endl;
+      return bitstream_value;
+    }
+    else {
+      auto switch_trans = std::find_if(switch_info.translation->begin(),
+                                       switch_info.translation->end(),
+                                       [&bitstream_value](const switch_translation& trans) {
+                                         return trans.bitstream_value == bitstream_value;
+                                       });
+      if(switch_trans == switch_info.translation->end()) {
+        out << ansi::foreground::RED << "Invalid switch value in bitstream"
+            << std::endl;
+        return std::nullopt;
+      }
+      else {
+        out << "Discrete Value: " << switch_trans->name << std::endl;
+        return switch_trans->id;
+      }
+    }
+  }
+
+
+  std::optional<uint32_t> read_switch(const std::string &switch_name, std::ostream &out) {
     RAIIStreamReconstructor stream_recon(out);
 
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
@@ -150,35 +194,10 @@ namespace hw_interface {
                                });
     if (result == switch_infos.end()) {
       out << ansi::foreground::RED << "Switch is invalid" << std::endl;
-      return;
+      return std::nullopt;
     }
 
-    const auto flush_result = flush_switch_in(result->switch_id, out);
-    if(flush_result != EXIT_SUCCESS) {
-      out << ansi::foreground::RED << "Failed to read switch from hardware." << std::endl;
-      return;
-    }
-
-    auto bitstream_value =
-      get_bitstream_value(*stream_infos[result->stream_id].data,
-                          result->bit_length,
-                          result->bit_position);
-
-    if(result->type == switch_type::CONTINUOUS) {
-      out << "Continuous Value: " << bitstream_value << std::endl;
-    }
-    else {
-      auto switch_trans = std::find_if(result->translation->begin(),
-                                       result->translation->end(),
-                                       [&bitstream_value](const switch_translation& trans) {
-                                         return trans.bitstream_value == bitstream_value;
-                                       });
-      if(switch_trans == result->translation->end())
-        out << ansi::foreground::RED << "Invalid switch value in bitstream"
-            << std::endl;
-      else
-        out << "Discrete Value: " << switch_trans->name << std::endl;
-    }
+    return read_switch(result->switch_id, out);
   }
 
   void write_io(const uint32_t address, const uint32_t value, const uint8_t length, enum access_width access_width, std::ostream &out) {

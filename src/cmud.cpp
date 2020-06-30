@@ -7,6 +7,7 @@
 #include <cli/clifilesession.h>
 
 #include "hw_interface_helpers.hpp"
+#include "board_interface.hpp"
 
 int main(int argc, char *argv[]) {
   hw_interface::init();
@@ -27,6 +28,16 @@ int main(int argc, char *argv[]) {
                      hw_interface::write_switch(switch_name, switch_state, out);
                    },
                    "Write switch");
+
+  rootMenu->Insert("get_ch",
+                   [](std::ostream &out) {
+                     std::vector<std::string> boards = {"ADC", "DDC", "DDC400", "WDDC400", "AUC", "DUC", "RXTX"};
+                     for (const auto &board : boards) {
+                       const auto present = board_interface::check_if_module_present(board, out);
+                       out << board << ": " << present <<std::endl;
+                     }
+                   },
+                   "get ch");
 
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
