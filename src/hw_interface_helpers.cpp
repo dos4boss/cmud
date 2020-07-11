@@ -1,7 +1,6 @@
+#include "logger.hpp"
 #include "hw_interface_helpers.hpp"
 #include "hw_interface.hpp"
-#include "output_helpers.hpp"
-#include "../ansi-color-kit/ansicolorkit.h"
 #include "gsl/gsl-lite.hpp"
 
 #include <algorithm>
@@ -10,10 +9,12 @@
 #include <climits>
 #include <string>
 #include <cstring>
+#include <unordered_map>
 
 #include <sys/io.h>
 
 namespace hw_interface {
+  MAKE_LOCAL_LOGGER("hw_interface");
 
   template <typename R> static constexpr R bitmask(unsigned int const onecount) {
     return static_cast<R>(-(onecount != 0)) &
@@ -45,25 +46,39 @@ namespace hw_interface {
 
 
   void init(void) {
-    for(const auto & stream_info : stream_infos) {
+    std::unordered_map<decltype(stream_info::address), decltype(stream_info::length)> ioport_map;
+    for (const auto &stream_info : stream_infos) {
       *(stream_info.data) = stream_info.default_data;
       if(stream_info.interface_mode == interface_mode::IO_PORTS) {
-        auto return_value = ioperm(stream_info.address, stream_info.length, 1);
-        if(return_value != 0) {
-          std::cout << "ret_val " << return_value << std::strerror(errno) << std::endl;
-          if(errno == EINVAL)
-            std::cout << ansi::foreground::RED << "[I/O Ports] Address "
-                      << stream_info.address << " failed" << std::endl;
+        const auto search = ioport_map.find(stream_info.address);
+        if (search != ioport_map.end() && search->second == stream_info.length)
+          continue;
+        const auto return_value = ioperm(stream_info.address, stream_info.length, 1);
+        ioport_map[stream_info.address] = stream_info.length;
+        if (return_value != 0) {
+          if(errno == EINVAL) {
+            LOGGER_ERROR("Failed to get access to I/O Ports 0x{:04X} - 0x{:04X} ({})",
+                         stream_info.address,
+                         stream_info.address + stream_info.length,
+                         std::strerror(errno));
+            std::cout << logger::LoggerSink::get();
+          }
           else if(errno == ENOMEM) {
-            std::cout << ansi::foreground::RED
-                      << "[I/O Ports] Out of Memory during access request for address "
-                      << stream_info.address << std::endl;
+            LOGGER_CRITICAL("Out of memory during I/O Ports 0x{:04X} - "
+                            "0x{:04X} access request",
+                            stream_info.address,
+                            stream_info.address + stream_info.length);
+            std::cout << logger::LoggerSink::get();
             exit(EXIT_FAILURE);
           } else if (errno == EPERM) {
-            std::cout << ansi::foreground::RED
-                      << "[I/O Ports] Permission denied on access request. Make "
-              "sure to run as root. "
-                      << std::endl;
+            LOGGER_CRITICAL("Permission denied on access request. Make sure to run as root.");
+            std::cout << logger::LoggerSink::get();
+            exit(EXIT_FAILURE);
+          }
+          else {
+            LOGGER_CRITICAL("Unknown failure during I/O Port access request ({})",
+                            std::strerror(errno));
+            std::cout << logger::LoggerSink::get();
             exit(EXIT_FAILURE);
           }
         }
@@ -76,56 +91,47 @@ namespace hw_interface {
     switch (access_width) {
     case access_width::BYTE: {
       if (length != 1) {
-        out << ansi::foreground::RED
-            << "Byte access is usually only done for 1 byte long streams."
-            << std::endl;
+        LOGGER_ERROR("Byte access is usually only done for 1 byte long streams.");
         return EXIT_FAILURE;
       }
       const auto read_value = inb(address);
-      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x"
-          << std::hex << +read_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Read byte: 0x{:02X} @ 0x{:04X}", read_value, address);
       value = read_value;
       break;
     }
 
     case access_width::WORD: {
       if (length != 2) {
-        out << ansi::foreground::RED
-            << "Word access is usually only done for 2 byte long streams."
-            << std::endl;
+        LOGGER_ERROR("Word access is usually only done for 2 byte long streams.");
         return EXIT_FAILURE;
       }
       const auto read_value = inw(address);
-      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x" << std::hex
-          << read_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Read word: 0x{:04X} @ 0x{:04X}", read_value, address);
       value = read_value;
       break;
     }
 
     case access_width::DWORD: {
-      if (length != 2) {
-        out << ansi::foreground::RED
-            << "Word access is usually only done for 2 byte long streams."
-            << std::endl;
+      if (length != 4) {
+        LOGGER_ERROR("Dword access is usually only done for 4 byte long streams.");
         return EXIT_FAILURE;
       }
       const auto read_value = inl(address);
-      out << ansi::foreground::CYAN << "[I/O Ports] Read byte: 0x" << std::hex
-          << read_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Read word: 0x{:08X} @ 0x{:04X}", read_value, address);
       value = read_value;
       break;
     }
 
     default:
-      out << ansi::foreground::RED
-          << "[I/O Ports] Access mode currently not supported." << std::endl;
+      LOGGER_ERROR("Access mode currently not supported.");
+      return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
   }
 
   uint32_t flush_switch_in(enum switch_id switch_id, std::ostream &out) {
     if (switch_id >= switch_infos.size()) {
-      out << ansi::foreground::RED << "Invalid switch id" << std::endl;
+      LOGGER_ERROR("Invalid switch id ({:} >= {:})", switch_id, switch_infos.size());
       return EXIT_FAILURE;
     }
     const auto &stream_info = stream_infos[switch_infos[switch_id].stream_id];
@@ -135,25 +141,25 @@ namespace hw_interface {
                      stream_info.access_width, out);
       break;
     default:
-      out << ansi::foreground::RED << "Interface mode not supported"
-          << std::endl;
+      LOGGER_ERROR("Interface mode not yet supported.");
       return EXIT_FAILURE;
     }
   }
 
 
   std::optional<uint32_t> read_switch(const switch_id &switch_id, std::ostream &out) {
-    RAIIStreamReconstructor stream_recon(out);
+    logger::RAIIFlush raii_flusher(out);
+
     const auto &switch_info = switch_infos[switch_id];
     if (switch_info.switch_id != switch_id) {
-      out << ansi::foreground::RED << "Invalid switch_id."
-          << std::endl;
+      LOGGER_ERROR("Switch id is mismatching idx (idx: {:}, switch_id: {:})",
+                   switch_id, switch_info.switch_id);
       return std::nullopt;
     }
 
     const auto flush_result = flush_switch_in(switch_info.switch_id, out);
     if(flush_result != EXIT_SUCCESS) {
-      out << ansi::foreground::RED << "Failed to read switch from hardware." << std::endl;
+      LOGGER_ERROR("Failed to read switch from hardware.");
       return std::nullopt;
     }
 
@@ -173,8 +179,7 @@ namespace hw_interface {
                                          return trans.bitstream_value == bitstream_value;
                                        });
       if(switch_trans == switch_info.translation->end()) {
-        out << ansi::foreground::RED << "Invalid switch value in bitstream"
-            << std::endl;
+        LOGGER_ERROR("Invalid switch value in bitstream");
         return std::nullopt;
       }
       else {
@@ -185,15 +190,15 @@ namespace hw_interface {
   }
 
 
-  std::optional<uint32_t> read_switch(const std::string &switch_name, std::ostream &out) {
-    RAIIStreamReconstructor stream_recon(out);
 
+  std::optional<uint32_t> read_switch(const std::string &switch_name, std::ostream &out) {
+    logger::RAIIFlush raii_flush(out);
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
                                [switch_name](const switch_info &sw_info) {
                                  return sw_info.name == switch_name;
                                });
     if (result == switch_infos.end()) {
-      out << ansi::foreground::RED << "Switch is invalid" << std::endl;
+      LOGGER_ERROR("Switch '{}' is invalid", switch_name);
       return std::nullopt;
     }
 
@@ -204,52 +209,45 @@ namespace hw_interface {
     switch(access_width) {
     case access_width::BYTE: {
       if(length != 1) {
-        out << ansi::foreground::RED << "Byte access is usually only done for 1 byte long streams." << std::endl;
+        LOGGER_ERROR("Byte access is usually only done for 1 byte long streams.");
         return;
       }
       const auto sized_value = gsl::narrow<uint8_t>(value);
-      out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x" << std::hex
-          << +sized_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Writing byte: 0x{:02X} @ 0x{:04X}", sized_value, address);
       outb(sized_value,  address);
       break;
     }
 
     case access_width::WORD: {
       if (length != 2) {
-        out << ansi::foreground::RED
-            << "Word access is usually only done for 2 byte long streams."
-            << std::endl;
+        LOGGER_ERROR("Word access is usually only done for 2 byte long streams.");
         return;
       }
       const auto sized_value = gsl::narrow<uint16_t>(value);
-      out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x"
-          << std::hex << sized_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Writing byte: 0x{:04X} @ 0x{:04X}", sized_value, address);
       outw(sized_value, address);
       break;
     }
 
     case access_width::DWORD: {
       if (length != 4) {
-        out << ansi::foreground::RED
-            << "Dword access is usually only done for 4 byte long streams."
-            << std::endl;
+        LOGGER_ERROR("Dword access is usually only done for 4 byte long streams.");
         return;
       }
       const auto sized_value = gsl::narrow<uint32_t>(value);
-      out << ansi::foreground::CYAN << "[I/O Ports] Writing byte: 0x"
-          << std::hex << sized_value << " @ 0x" << address << std::endl;
+      LOGGER_INFO("Writing byte: 0x{:08X} @ 0x{:04X}", sized_value, address);
       outl(sized_value, address);
       break;
     }
 
     default:
-      out << ansi::foreground::RED << "[I/O Ports] Access mode currently not supported." << std::endl;
+      LOGGER_ERROR("Access mode currently not supported.");
     }
   }
 
   void flush_switch_out(enum switch_id switch_id, std::ostream &out) {
     if(switch_id >= switch_infos.size()) {
-      out << ansi::foreground::RED << "Invalid switch id" << std::endl;
+      LOGGER_ERROR("Invalid switch id ({:} >= {:})", switch_id, switch_infos.size());
       return;
     }
     const auto &stream_info = stream_infos[switch_infos[switch_id].stream_id];
@@ -258,19 +256,19 @@ namespace hw_interface {
       write_io(stream_info.address, *(stream_info.data), stream_info.length, stream_info.access_width, out);
       break;
     default:
-      out << ansi::foreground::RED << "Interface mode not supported" << std::endl;
+      LOGGER_ERROR("Interface mode not yet supported.");
     }
   }
 
   void write_switch(const std::string &switch_name, const std::string &switch_state, std::ostream &out) {
-    RAIIStreamReconstructor stream_recon(out);
+    logger::RAIIFlush raii_flush(out);
 
     auto result = std::find_if(switch_infos.begin(), switch_infos.end(),
                                [switch_name](const switch_info &sw_info) {
                                  return sw_info.name == switch_name;
                                });
     if (result == switch_infos.end()) {
-      out << "Switch is invalid" << std::endl;
+      LOGGER_ERROR("Switch is invalid");
       return;
     }
 
@@ -280,22 +278,17 @@ namespace hw_interface {
         cont_value = std::stoul(switch_state, 0, 0);
       }
       catch(const std::invalid_argument &e){
-        out << ansi::foreground::RED << "Could not create a valid value for input '"
-            << switch_state << "' (" << e.what() << ")." << std::endl;
+        LOGGER_ERROR("Could not create a valid value for input '{}' ({}).", switch_state, e.what());
         return;
       } catch (const std::out_of_range &e) {
-        out << ansi::foreground::RED << "Input value '" << switch_state
-            << "' does not fit in data size (" << e.what() << ")." << std::endl;
+        LOGGER_ERROR("Input value '{}' does not fit in data size ({}).", switch_state, e.what());
         return;
       }
 
       if((result->continuous_min > cont_value) || (result->continuous_max < cont_value)) {
-        out << ansi::foreground::RED << "Input value has to be between "
-            << result->continuous_min << " (0x" << std::hex
-            << result->continuous_min << ") and " << std::dec
-            << result->continuous_max << " (0x" << std::hex
-            << result->continuous_max << ")" << ansi::RESET << std::endl;
-            return;
+        LOGGER_ERROR("Input value has to be between {0} (0x{0:X}) and {1} (0x{1:X})",
+                     result->continuous_min, result->continuous_min);
+        return;
       }
       set_bitstream_value(*stream_infos[result->stream_id].data,
                           result->bit_length, result->bit_position,
@@ -308,12 +301,10 @@ namespace hw_interface {
                          return trans.name == switch_state;
                        });
       if (switch_trans == result->translation->end()) {
-        out << ansi::foreground::RED
-            << "Invalid switch state for selected switch."
-            << std::endl;
-        out << "Valid values would be:" << std::endl;
+        LOGGER_ERROR("Invalid switch state for selected switch.\n"
+                     "Valid values would be:");
         for(const auto & switch_translation : *result->translation)
-          out << "\t" << switch_translation.name << std::endl;
+          LOGGER_ERROR("\t{}", switch_translation.name);
       }
       else
         set_bitstream_value(*stream_infos[result->stream_id].data,

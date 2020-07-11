@@ -1,9 +1,9 @@
 [submodule "cli"]
 	path = cli
 	url = https://github.com/dos4boss/cli.git
-[submodule "ansi-color-kit"]
-	path = ansi-color-kit
-	url = https://github.com/bliffy/ansi-color-kit.git
 [submodule "gsl-lite"]
 	path = gsl-lite
 	url = https://github.com/gsl-lite/gsl-lite.git
+[submodule "spdlog"]
+	path = spdlog
+	url = https://github.com/gabime/spdlog.git

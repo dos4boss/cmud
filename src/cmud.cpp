@@ -9,8 +9,10 @@
 #include "hw_interface_helpers.hpp"
 #include "board_interface.hpp"
 
+
 int main(int argc, char *argv[]) {
   hw_interface::init();
+
 
   cli::SetColor();
 

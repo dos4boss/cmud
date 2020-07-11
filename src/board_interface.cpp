@@ -1,10 +1,10 @@
+#include "logger.hpp"
 #include "board_interface.hpp"
 #include "hw_interface_helpers.hpp"
 #include "correction_processor_interface.hpp"
 
-#include "../ansi-color-kit/ansicolorkit.h"
-
 namespace board_interface {
+  MAKE_LOCAL_LOGGER("board_interface");
 
   enum ddc_type {DDC,
                  DDC400,
@@ -63,7 +63,7 @@ namespace board_interface {
         return switch_val.value() == success_status;
     }
     else
-      out << ansi::foreground::RED << "Invalid board idx" << std::endl;
+      LOGGER_ERROR("Invalid board idx");
     return false;
   }
 
