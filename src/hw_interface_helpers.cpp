@@ -1,17 +1,14 @@
 #include "logger.hpp"
 #include "hw_interface_helpers.hpp"
 #include "hw_interface.hpp"
-#include "gsl/gsl-lite.hpp"
+#include "io_port_interface.hpp"
 
 #include <algorithm>
-#include <stdexcept>
 #include <iostream>
 #include <climits>
 #include <string>
 #include <cstring>
 #include <unordered_map>
-
-#include <sys/io.h>
 
 namespace hw_interface {
   MAKE_LOCAL_LOGGER("hw_interface");
@@ -50,83 +47,9 @@ namespace hw_interface {
     for (const auto &stream_info : stream_infos) {
       *(stream_info.data) = stream_info.default_data;
       if(stream_info.interface_mode == interface_mode::IO_PORTS) {
-        const auto search = ioport_map.find(stream_info.address);
-        if (search != ioport_map.end() && search->second == stream_info.length)
-          continue;
-        const auto return_value = ioperm(stream_info.address, stream_info.length, 1);
-        ioport_map[stream_info.address] = stream_info.length;
-        if (return_value != 0) {
-          if(errno == EINVAL) {
-            LOGGER_ERROR("Failed to get access to I/O Ports 0x{:04X} - 0x{:04X} ({})",
-                         stream_info.address,
-                         stream_info.address + stream_info.length,
-                         std::strerror(errno));
-            std::cout << logger::LoggerSink::get();
-          }
-          else if(errno == ENOMEM) {
-            LOGGER_CRITICAL("Out of memory during I/O Ports 0x{:04X} - "
-                            "0x{:04X} access request",
-                            stream_info.address,
-                            stream_info.address + stream_info.length);
-            std::cout << logger::LoggerSink::get();
-            exit(EXIT_FAILURE);
-          } else if (errno == EPERM) {
-            LOGGER_CRITICAL("Permission denied on access request. Make sure to run as root.");
-            std::cout << logger::LoggerSink::get();
-            exit(EXIT_FAILURE);
-          }
-          else {
-            LOGGER_CRITICAL("Unknown failure during I/O Port access request ({})",
-                            std::strerror(errno));
-            std::cout << logger::LoggerSink::get();
-            exit(EXIT_FAILURE);
-          }
-        }
+        io_port_interface::register_access(stream_info.address, stream_info.length);
       }
     }
-  }
-
-  uint32_t read_io(const uint32_t address, uint32_t &value, const uint8_t length,
-                   enum access_width access_width, std::ostream &out) {
-    switch (access_width) {
-    case access_width::BYTE: {
-      if (length != 1) {
-        LOGGER_ERROR("Byte access is usually only done for 1 byte long streams.");
-        return EXIT_FAILURE;
-      }
-      const auto read_value = inb(address);
-      LOGGER_INFO("Read byte: 0x{:02X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
-    }
-
-    case access_width::WORD: {
-      if (length != 2) {
-        LOGGER_ERROR("Word access is usually only done for 2 byte long streams.");
-        return EXIT_FAILURE;
-      }
-      const auto read_value = inw(address);
-      LOGGER_INFO("Read word: 0x{:04X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
-    }
-
-    case access_width::DWORD: {
-      if (length != 4) {
-        LOGGER_ERROR("Dword access is usually only done for 4 byte long streams.");
-        return EXIT_FAILURE;
-      }
-      const auto read_value = inl(address);
-      LOGGER_INFO("Read word: 0x{:08X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
-    }
-
-    default:
-      LOGGER_ERROR("Access mode currently not supported.");
-      return EXIT_FAILURE;
-    }
-    return EXIT_SUCCESS;
   }
 
   uint32_t flush_switch_in(enum switch_id switch_id, std::ostream &out) {
@@ -137,8 +60,8 @@ namespace hw_interface {
     const auto &stream_info = stream_infos[switch_infos[switch_id].stream_id];
     switch (stream_info.interface_mode) {
     case interface_mode::IO_PORTS:
-      return read_io(stream_info.address, *(stream_info.data), stream_info.length,
-                     stream_info.access_width, out);
+      return io_port_interface::read(stream_info.address, *(stream_info.data), stream_info.length,
+                                     stream_info.access_width, out);
       break;
     default:
       LOGGER_ERROR("Interface mode not yet supported.");
@@ -205,46 +128,6 @@ namespace hw_interface {
     return read_switch(result->switch_id, out);
   }
 
-  void write_io(const uint32_t address, const uint32_t value, const uint8_t length, enum access_width access_width, std::ostream &out) {
-    switch(access_width) {
-    case access_width::BYTE: {
-      if(length != 1) {
-        LOGGER_ERROR("Byte access is usually only done for 1 byte long streams.");
-        return;
-      }
-      const auto sized_value = gsl::narrow<uint8_t>(value);
-      LOGGER_INFO("Writing byte: 0x{:02X} @ 0x{:04X}", sized_value, address);
-      outb(sized_value,  address);
-      break;
-    }
-
-    case access_width::WORD: {
-      if (length != 2) {
-        LOGGER_ERROR("Word access is usually only done for 2 byte long streams.");
-        return;
-      }
-      const auto sized_value = gsl::narrow<uint16_t>(value);
-      LOGGER_INFO("Writing byte: 0x{:04X} @ 0x{:04X}", sized_value, address);
-      outw(sized_value, address);
-      break;
-    }
-
-    case access_width::DWORD: {
-      if (length != 4) {
-        LOGGER_ERROR("Dword access is usually only done for 4 byte long streams.");
-        return;
-      }
-      const auto sized_value = gsl::narrow<uint32_t>(value);
-      LOGGER_INFO("Writing byte: 0x{:08X} @ 0x{:04X}", sized_value, address);
-      outl(sized_value, address);
-      break;
-    }
-
-    default:
-      LOGGER_ERROR("Access mode currently not supported.");
-    }
-  }
-
   void flush_switch_out(enum switch_id switch_id, std::ostream &out) {
     if(switch_id >= switch_infos.size()) {
       LOGGER_ERROR("Invalid switch id ({:} >= {:})", switch_id, switch_infos.size());
@@ -253,7 +136,7 @@ namespace hw_interface {
     const auto &stream_info = stream_infos[switch_infos[switch_id].stream_id];
     switch(stream_info.interface_mode) {
     case interface_mode::IO_PORTS:
-      write_io(stream_info.address, *(stream_info.data), stream_info.length, stream_info.access_width, out);
+      io_port_interface::write(stream_info.address, *(stream_info.data), stream_info.length, stream_info.access_width, out);
       break;
     default:
       LOGGER_ERROR("Interface mode not yet supported.");

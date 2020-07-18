@@ -1,7 +1,7 @@
 #include "logger.hpp"
 #include "board_interface.hpp"
 #include "hw_interface_helpers.hpp"
-#include "correction_processor_interface.hpp"
+#include "mmio_interface.hpp"
 
 namespace board_interface {
   MAKE_LOCAL_LOGGER("board_interface");
@@ -100,14 +100,8 @@ namespace board_interface {
                                                              out);
     }
     else if (board_id == "RXTX") {
-      if (board_idx == 0) {
-        correction_processor_interface::CorrectionProcessorInterface cor_pro(0xD4000);
-        return cor_pro.is_present();
-      }
-      else if (board_idx == 1) {
-        correction_processor_interface::CorrectionProcessorInterface cor_pro(0xD5000);
-        return cor_pro.is_present();
-      }
+      mmio_interface::CorrectionProcessorInterface cor_pro(board_idx);
+      return cor_pro.is_present(out);
     }
     return false;
   }
