@@ -284,7 +284,7 @@ with open("hw_interface.hpp", "w") as f:
 
     f.write('namespace hw_interface {\n\n')
 
-    f.write('enum switch_id : uint32_t;\nenum stream_id : uint32_t;\nstruct switch_translation;\n\n')
+    f.write('enum switch_id : uint32_t;\nenum stream_id : uint32_t;\nenum switch_status : uint32_t;\nstruct switch_translation;\n\n')
 
     f.write('enum switch_type {\n'
             'DISCRETE,\n'
@@ -306,7 +306,7 @@ with open("hw_interface.hpp", "w") as f:
 
     f.write('struct switch_translation {\n'
             '  char const *name;\n'
-            '  uint32_t id;\n'
+            '  switch_status id;\n'
             '  uint16_t bitstream_value;\n'
             '};\n\n\n')
 

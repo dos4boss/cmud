@@ -8,6 +8,7 @@ namespace hw_interface {
 
 enum switch_id : uint32_t;
 enum stream_id : uint32_t;
+enum switch_status : uint32_t;
 struct switch_translation;
 
 enum switch_type {
@@ -32,7 +33,7 @@ struct switch_info {
 
 struct switch_translation {
   char const *name;
-  uint32_t id;
+  switch_status id;
   uint16_t bitstream_value;
 };
 

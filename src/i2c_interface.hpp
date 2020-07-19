@@ -1,12 +1,52 @@
 #pragma once
 
+#include "hw_interface_helpers.hpp"
+
 #include <chrono>
 #include <inttypes.h>
 #include <vector>
 #include <functional>
 #include <thread>
+#include <type_traits>
+#include <optional>
 
-#include <iostream>
+template <typename T,
+          bool big_endian = true,
+          typename std::enable_if<std::is_arithmetic<T>::value>::type * = nullptr>
+std::vector<uint8_t> to_byte_vector(T const &value) {
+  std::vector<uint8_t> bytes;
+
+  for (size_t i = 0; i < sizeof(value); i++) {
+    uint8_t byte = value >> (i * 8);
+    if constexpr (big_endian) {
+      bytes.insert(bytes.begin(), byte);
+    }
+    else {
+      bytes.insert(bytes.end(), byte);
+    }
+  }
+
+  return bytes;
+}
+
+template <typename T,
+          bool big_endian = true,
+          typename std::enable_if<std::is_arithmetic<T>::value>::type * = nullptr>
+T from_byte_vector(const std::vector<uint8_t> &bytes) {
+  if(sizeof(T) != bytes.size())
+    throw std::runtime_error("Byte length is not matching size requested of type");
+  T result{0};
+  for (size_t i = 0; i < sizeof(T); i++) {
+    if constexpr (big_endian) {
+        result |= bytes[i];
+    } else {
+      result |= bytes[sizeof(T) - i - 1];
+    }
+    if (i != sizeof(T) - 1)
+      result <<= 8;
+  }
+  return result;
+}
 
 namespace i2c_interface
 {
@@ -15,8 +55,7 @@ namespace i2c_interface
   public:
     I2CInterface(const uint_fast32_t &bits_per_second = 100000) :
       bits_per_second_(bits_per_second) {
-      delay_ns_ = std::chrono::seconds(1) / bits_per_second;
-      std::cout << "delay ns " << delay_ns_.count() << std::endl;
+      delay_ns_ = std::chrono::nanoseconds(500000000) / bits_per_second;
     }
 
     virtual void write(const uint_fast16_t &address, const std::vector<uint8_t> &data) = 0;
@@ -28,132 +67,142 @@ namespace i2c_interface
     std::chrono::nanoseconds delay_ns_;
   };
 
+  void write(const hw_interface::stream_id &stream_id, const uint32_t &address,
+             const uint32_t &value, const uint8_t &length,
+             const hw_interface::access_width &access_width,
+             std::ostream &out);
 
-  struct Accessor {
-    std::function<void(bool)> setter;
-    std::function<bool(void)> getter;
+  std::optional<uint32_t> read(const hw_interface::stream_id &stream_id,
+                               const uint32_t &address, const uint8_t &length,
+                               const hw_interface::access_width &access_width,
+                               std::ostream &out);
+
+  // if no readback of SCL line is supported, it can't react to clock
+  // stretching
+  struct DefaultSCLGetter {
+    bool operator()(void) { return 1; }
   };
 
-  template <Accessor &SDA_Accessor, Accessor &SCL_Accessor>
+  template <class SDA_Setter, class SDA_Getter, class SCL_Setter,
+            class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
   class I2CBitBang : I2CInterface {
   public:
     I2CBitBang(const uint_fast32_t &bits_per_second = 100000) {}
 
-    void write(const uint_fast16_t &address, const std::vector<uint8_t> &data) override {
-      if(!write_byte(true, false, address)) {
+    void write(const uint_fast16_t &address,
+               const std::vector<uint8_t> &data) override {
+      if (!write_byte(true, false, address)) {
         bool nacks = false;
-        for(const auto & byte : data) {
-          if(!nacks)
-            nacks = write_byte(byte);
+        for (const auto &byte : data) {
+          if (!nacks)
+            nacks = write_byte(false, false, byte);
           else
             break;
         }
         stop_cond();
-        if(!nacks)
+        if (!nacks)
           return;
-      }
-      else
+      } else
         stop_cond();
       throw std::runtime_error("I2C: Writing failed because of missing ACKs");
     }
 
-    std::vector<uint8_t> read(const uint_fast16_t &address, const uint_fast16_t &length) override {
+    std::vector<uint8_t> read(const uint_fast16_t &address,
+                              const uint_fast16_t &length) override {
       std::vector<uint8_t> result;
       result.reserve(length);
 
       if (!write_byte(true, false, address | 1)) {
-        for(uint_fast16_t k; k < length; ++k) {
+        for (uint_fast16_t k; k < length; ++k) {
           const bool is_last = k == length - 1;
           result.push_back(read_byte(is_last, is_last));
         }
         return result;
-      }
-      else
+      } else
         stop_cond();
-      throw std::runtime_error("I2C: Reading failed because of ");
+      throw std::runtime_error("I2C: Reading failed because of missing ACK.");
     }
 
-  private :
-
+  private:
     void start_cond(void) {
       if (started_) {
         // if started, do a restart condition
-        SDA_Accessor.setter(1);
+        SDA_Setter{}(1);
         delay();
-        SCL_Accessor.setter(1);
+        SCL_Setter{}(1);
 
-        // handle clock stretching if the accessor supports it
-        if constexpr (SCL_Accessor.getter) {
-            while (SCL_Accessor.getter() == 0) {
-              std::this_thread::sleep_for(delay_ns_ / 10);
-            }
-          }
+        // handle clock stretching if supported
+        while (SCL_Getter{}() == 0) {
+          std::this_thread::sleep_for(delay_ns_ / 10);
+        }
 
         delay();
       }
 
-      if (SDA_Accessor.getter() == 0)
-        throw std::runtime_error("I2C: Arbitration lost during start condition");
+      if constexpr (ArbitrationCheck) {
+        if (SDA_Getter{}() == 0)
+          throw std::runtime_error("I2C: Arbitration lost during start condition");
+      }
 
-      SDA_Accessor.setter(0);
+      SDA_Setter{}(0);
       delay();
-      SCL_Accessor.setter(0);
+      SCL_Setter{}(0);
       started_ = true;
     }
 
     void stop_cond(void) {
-      SDA_Accessor.setter(0);
+      SDA_Setter{}(0);
       delay();
-      SCL_Accessor.setter(1);
+      SCL_Setter{}(1);
 
-      // handle clock stretching if the accessor supports it
-      if constexpr (SCL_Accessor.getter) {
-          while (SCL_Accessor.getter() == 0) {
-            std::this_thread::sleep_for(delay_ns_ / 10);
-          }
-        }
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
 
       delay();
-      SDA_Accessor.setter(1);
+      SDA_Setter{}(1);
       delay();
 
-      if (SDA_Accessor.getter() == 0)
-        throw std::runtime_error("I2C: Arbitration lost during stop condition");
+      if constexpr (ArbitrationCheck) {
+        if (SDA_Getter{}() == 0)
+          throw std::runtime_error("I2C: Arbitration lost during stop condition");
+      }
 
       started_ = false;
     }
 
     void write_bit(bool bit) {
-      SDA_Accessor.setter(bit);
+      SDA_Setter{}(bit);
       delay();
-      SCL_Accessor.setter(1);
+      SCL_Setter{}(1);
       delay();
-      // handle clock stretching if the accessor supports it
-      if constexpr(SCL_Accessor.getter) {
-          while (SCL_Accessor.getter() == 0) {
-            std::this_thread::sleep_for(delay_ns_ / 10);
-          }
-        }
 
-      if (bit && (SDA_Accessor.getter() == 0))
-        throw std::runtime_error("I2C: Arbitration lost during bit writing");
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
 
-      SCL_Accessor.setter(0);
+      if constexpr (ArbitrationCheck) {
+        if (bit && (SDA_Getter{}() == 0))
+          throw std::runtime_error("I2C: Arbitration lost during bit writing");
+      }
+      SCL_Setter{}(0);
     }
 
     bool read_bit(void) {
-      SDA_Accessor.setter(1);
+      SDA_Setter{}(1);
       delay();
-      SCL_Accessor.setter(1);
-      // handle clock stretching if the accessor supports it
-      if constexpr(SCL_Accessor.getter) {
-          while (SCL_Accessor.getter() == 0) {
-            std::this_thread::sleep_for(delay_ns_ / 10);
-          }
-        }
+      SCL_Setter{}(1);
+
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
+
       delay();
-      auto result = SDA_Accessor.getter();
-      SCL_Accessor.setter(0);
+      auto result = SDA_Getter{}();
+      SCL_Setter{}(0);
       return result;
     }
 
@@ -191,8 +240,7 @@ namespace i2c_interface
       return byte;
     }
 
-
     bool started_ = false;
-};
+  };
 
 } // namespace i2c_interface

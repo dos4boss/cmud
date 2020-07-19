@@ -40,8 +40,8 @@ namespace io_port_interface {
     }
   }
 
-  void write(const uint32_t address, const uint32_t value,
-             const uint8_t length, hw_interface::access_width access_width,
+  void write(const uint32_t &address, const uint32_t &value,
+             const uint8_t &length, const hw_interface::access_width &access_width,
              std::ostream &out) {
     logger::RAIIFlush raii_flush(out);
 
@@ -84,9 +84,9 @@ namespace io_port_interface {
     }
   }
 
-  uint32_t read(const uint32_t address, uint32_t &value,
-                const uint8_t length, hw_interface::access_width access_width,
-                std::ostream &out) {
+  std::optional<uint32_t> read(const uint32_t &address, const uint8_t &length,
+                               const hw_interface::access_width &access_width,
+                               std::ostream &out) {
     logger::RAIIFlush raii_flush(out);
 
     switch (access_width) {
@@ -96,9 +96,8 @@ namespace io_port_interface {
         return EXIT_FAILURE;
       }
       const auto read_value = inb(address);
-      LOGGER_INFO("Read byte: 0x{:02X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
+      LOGGER_INFO("Reading byte: 0x{:02X} @ 0x{:04X}", read_value, address);
+      return read_value;
     }
 
     case hw_interface::access_width::WORD: {
@@ -107,9 +106,8 @@ namespace io_port_interface {
         return EXIT_FAILURE;
       }
       const auto read_value = inw(address);
-      LOGGER_INFO("Read word: 0x{:04X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
+      LOGGER_INFO("Reading word: 0x{:04X} @ 0x{:04X}", read_value, address);
+      return read_value;
     }
 
     case hw_interface::access_width::DWORD: {
@@ -118,16 +116,14 @@ namespace io_port_interface {
         return EXIT_FAILURE;
       }
       const auto read_value = inl(address);
-      LOGGER_INFO("Read word: 0x{:08X} @ 0x{:04X}", read_value, address);
-      value = read_value;
-      break;
+      LOGGER_INFO("Reading word: 0x{:08X} @ 0x{:04X}", read_value, address);
+      return read_value;
     }
 
     default:
       LOGGER_ERROR("Access mode currently not supported.");
-      return EXIT_FAILURE;
+      return std::nullopt;
     }
-    return EXIT_SUCCESS;
   }
 
 } // namespace io_port_interface
