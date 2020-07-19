@@ -87,7 +87,7 @@ namespace i2c_interface
             class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
   class I2CBitBang : I2CInterface {
   public:
-    I2CBitBang(const uint_fast32_t &bits_per_second = 100000) {}
+    I2CBitBang(const uint_fast32_t &bits_per_second = 100000) :  I2CInterface(bits_per_second) {}
 
     void write(const uint_fast16_t &address,
                const std::vector<uint8_t> &data) override {
@@ -113,7 +113,7 @@ namespace i2c_interface
       result.reserve(length);
 
       if (!write_byte(true, false, address | 1)) {
-        for (uint_fast16_t k; k < length; ++k) {
+        for (uint_fast16_t k = 0; k < length; ++k) {
           const bool is_last = k == length - 1;
           result.push_back(read_byte(is_last, is_last));
         }
