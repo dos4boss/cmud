@@ -96,13 +96,14 @@ namespace i2c_interface {
 
       default:
         LOGGER_ERROR("Access mode currently not supported.");
+        break;
       }
 
       i2c_bitbanger_fe.write(address, data);
+      break;
     }
     default:
       LOGGER_ERROR("Requested stream (0x{:x}) currently not supported for I2C access.", stream_id);
-      return;
     }
   }
 
