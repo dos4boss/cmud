@@ -8,7 +8,7 @@
 
 #include "hw_interface_helpers.hpp"
 #include "board_interface.hpp"
-
+#include "fpga_interface.hpp"
 
 int main(int argc, char *argv[]) {
   hw_interface::init();
@@ -40,6 +40,12 @@ int main(int argc, char *argv[]) {
                      }
                    },
                    "get ch");
+
+  rootMenu->Insert("dig_init",
+                   [](std::ostream &out, const std::string fpga_str, const std::string file_path) {
+                     fpga_interface::load_fpga(fpga_str, file_path, out);
+                   },
+                   "Load bitstream to fpga");
 
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
