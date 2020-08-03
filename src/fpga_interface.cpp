@@ -221,7 +221,7 @@ namespace fpga_interface {
       return false;
 
     while (binary_file_iter != std::istreambuf_iterator<char>()) {
-      if(wait_for_ready(fpga, out))
+      if (!wait_for_ready(fpga, out))
         return false;
 
       uint32_t value = 0;
