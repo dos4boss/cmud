@@ -14,9 +14,19 @@
 #include <string>
 #include <vector>
 #include <string_view>
-
+#include <ostream>
 
 namespace logger {
+
+  class NullStream : public std::ostream {
+    class NullBuffer : public std::streambuf {
+    public:
+      int overflow(int c) { return c; }
+    } m_nb;
+
+  public:
+    NullStream() : std::ostream(&m_nb) {}
+  };
 
   template <std::string_view const &... Strs> struct string_view_join {
     // Helper to get a string literal from a std::array
@@ -243,10 +253,14 @@ namespace logger {
       : out_(out) {
     }
 
-    ~RAIIFlush() {
+    void flush(void) {
       const auto &res_vec = LoggerSink::get();
-      for(const auto &res : res_vec)
+      for (const auto &res : res_vec)
         out_ << res;
+    }
+
+    ~RAIIFlush() {
+      flush();
     }
 
   private:
@@ -264,15 +278,3 @@ namespace logger {
 #define LOGGER_WARN(...) SPDLOG_LOGGER_WARN(&local_logger, __VA_ARGS__)
 #define LOGGER_ERROR(...) SPDLOG_LOGGER_ERROR(&local_logger, __VA_ARGS__)
 #define LOGGER_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(&local_logger, __VA_ARGS__)
-
-
-// #define LOGGER_DEBUG(...)                                                      \
-//   (&local_logger)->log(spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, spdlog::level::trace, __VA_ARGS__)
-// #define LOGGER_INFO(...)                                                       \
-//   (&local_logger)->log(spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, spdlog::level::trace, __VA_ARGS__)
-// #define LOGGER_WARN(...)                                                       \
-//   (&local_logger)->log(spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, spdlog::level::trace, __VA_ARGS__)
-// #define LOGGER_ERROR(...)                                                      \
-//   (&local_logger)->log(spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, spdlog::level::trace, __VA_ARGS__)
-// #define LOGGER_CRITICAL(...)                                                   \
-//   (&local_logger)->log(spdlog::source_loc{__FILE__, __LINE__, SPDLOG_FUNCTION}, spdlog::level::trace, __VA_ARGS__)

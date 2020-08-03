@@ -220,6 +220,11 @@ namespace fpga_interface {
     if (!init(fpga, out))
       return false;
 
+    LOGGER_INFO("To prevent too much output, the actual binary writing will not be logged...");
+    raii_flush.flush(); // this is necessary because the null_stream invalidates the stream;
+                        // so without it, the stuff up to this point won't get printed
+    logger::NullStream null_stream;
+
     while (binary_file_iter != std::istreambuf_iterator<char>()) {
       if (!wait_for_ready(fpga, out))
         return false;
@@ -232,7 +237,7 @@ namespace fpga_interface {
       else if (access_width == hw_interface::access_width::DWORD)
         value = from_byte_iterator<uint32_t>(binary_file_iter);
 
-      hw_interface::write_switch(switch_id, value, out);
+      hw_interface::write_switch(switch_id, value, null_stream);
     }
 
     if (get_init(fpga, out)) {
