@@ -1,6 +1,7 @@
 #include "fpga_interface.hpp"
 #include "logger.hpp"
 #include "hw_interface_helpers.hpp"
+#include "utilities.hpp"
 #include <thread>
 #include <chrono>
 #include <fstream>

@@ -1,53 +1,16 @@
 #include "logger.hpp"
 #include "i2c_interface.hpp"
 #include "gsl/gsl-lite.hpp"
+#include "utilities.hpp"
 
 #include <iostream>
 
 namespace i2c_interface {
   MAKE_LOCAL_LOGGER("i2c_interface");
 
-  void I2CInterface::delay(void) {
+  void I2CInterface::delay(void) const {
     std::this_thread::sleep_for(delay_ns_);
   }
-
-  struct SDA_Setter_FE {
-    void operator()(bool bit) {
-      hw_interface::switch_status sw_status;
-      if(bit)
-        sw_status = hw_interface::HSD_STA_HIGH;
-      else
-        sw_status = hw_interface::HSD_STA_LOW;
-
-      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_DATA_WR,
-                                 sw_status,
-                                 std::cout);
-    }
-  };
-
-  struct SDA_Getter_FE {
-    bool operator()(void) {
-      const auto sw_status_opt = hw_interface::read_switch_status(hw_interface::HSD_SW_DIG_I2C_FE_DATA_RD,
-                                                                  std::cout);
-      return sw_status_opt.value() == hw_interface::HSD_STA_HIGH;
-    }
-  };
-
-  struct SCL_Setter_FE {
-    void operator()(bool bit) {
-      hw_interface::switch_status sw_status;
-      if (bit)
-        sw_status = hw_interface::HSD_STA_HIGH;
-      else
-        sw_status = hw_interface::HSD_STA_LOW;
-
-      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_CLK,
-                                 sw_status,
-                                 std::cout);
-    }
-  };
-
-  static i2c_interface::I2CBitBang<SDA_Setter_FE, SDA_Getter_FE, SCL_Setter_FE> i2c_bitbanger_fe;
 
   void write(const hw_interface::stream_id &stream_id, const uint32_t &address,
              const uint32_t &value, const uint8_t &length, const hw_interface::access_width &access_width,
@@ -99,7 +62,7 @@ namespace i2c_interface {
         break;
       }
 
-      i2c_bitbanger_fe.write(address, data);
+      i2c_bitbangers[i2c_interfaces::FE].get().write(address, data);
       break;
     }
     default:
@@ -129,7 +92,7 @@ namespace i2c_interface {
           LOGGER_ERROR("Byte access is usually only done for 1 byte long streams.");
           return EXIT_FAILURE;
         }
-        const auto read_bytes = i2c_bitbanger_fe.read(address, 1);
+        const auto read_bytes = i2c_bitbangers[i2c_interfaces::FE].get().read(address, 1);
         const auto read_value = from_byte_vector<uint8_t>(read_bytes);
         LOGGER_INFO("Read byte: 0x{:02X} @ 0x{:04X}", read_value, address);
         return read_value;
@@ -140,7 +103,7 @@ namespace i2c_interface {
           LOGGER_ERROR("Word access is usually only done for 2 byte long streams.");
           return EXIT_FAILURE;
         }
-        const auto read_bytes = i2c_bitbanger_fe.read(address, 2);
+        const auto read_bytes = i2c_bitbangers[i2c_interfaces::FE].get().read(address, 2);
         const auto read_value = from_byte_vector<uint16_t>(read_bytes);
         LOGGER_INFO("Read word: 0x{:04X} @ 0x{:04X}", read_value, address);
         return read_value;
@@ -151,7 +114,7 @@ namespace i2c_interface {
           LOGGER_ERROR("Dword access is usually only done for 4 byte long streams.");
           return EXIT_FAILURE;
         }
-        const auto read_bytes = i2c_bitbanger_fe.read(address, 4);
+        const auto read_bytes = i2c_bitbangers[i2c_interfaces::FE].get().read(address, 4);
         const auto read_value = from_byte_vector<uint32_t>(read_bytes);
         LOGGER_INFO("Read word: 0x{:08X} @ 0x{:04X}", read_value, address);
         return read_value;
@@ -168,5 +131,213 @@ namespace i2c_interface {
       return std::nullopt;
     }
   }
+
+  // if no readback of SCL line is supported, it can't react to clock
+  // stretching
+  struct DefaultSCLGetter {
+    bool operator()(void) { return 1; }
+  };
+
+  template <class SDA_Setter, class SDA_Getter, class SCL_Setter,
+            class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
+  class I2CBitBang : public I2CInterface {
+  public:
+    I2CBitBang(const uint_fast32_t &bits_per_second = 100000) :  I2CInterface(bits_per_second) {}
+
+    void write(const uint_fast16_t &address,
+               const std::vector<uint8_t> &data) const override {
+      if (!write_byte(true, false, address)) {
+        bool nacks = false;
+        for (const auto &byte : data) {
+          if (!nacks)
+            nacks = write_byte(false, false, byte);
+          else
+            break;
+        }
+        stop_cond();
+        if (!nacks)
+          return;
+      } else
+        stop_cond();
+      throw std::runtime_error("I2C: Writing failed because of missing ACKs");
+    }
+
+    std::vector<uint8_t> read(const uint_fast16_t &address,
+                              const uint_fast16_t &length) const override {
+      std::vector<uint8_t> result;
+      result.reserve(length);
+
+      if (!write_byte(true, false, address | 1)) {
+        for (uint_fast16_t k = 0; k < length; ++k) {
+          const bool is_last = k == length - 1;
+          result.push_back(read_byte(is_last, is_last));
+        }
+        return result;
+      } else
+        stop_cond();
+      throw std::runtime_error("I2C: Reading failed because of missing ACK.");
+    }
+
+  protected:
+    void start_cond(void) const {
+      if (started_) {
+        // if started, do a restart condition
+        SDA_Setter{}(1);
+        delay();
+        SCL_Setter{}(1);
+
+        // handle clock stretching if supported
+        while (SCL_Getter{}() == 0) {
+          std::this_thread::sleep_for(delay_ns_ / 10);
+        }
+
+        delay();
+      }
+
+      if constexpr (ArbitrationCheck) {
+        if (SDA_Getter{}() == 0)
+          throw std::runtime_error("I2C: Arbitration lost during start condition");
+      }
+
+      SDA_Setter{}(0);
+      delay();
+      SCL_Setter{}(0);
+      started_ = true;
+    }
+
+    void stop_cond(void) const {
+      SDA_Setter{}(0);
+      delay();
+      SCL_Setter{}(1);
+
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
+
+      delay();
+      SDA_Setter{}(1);
+      delay();
+
+      if constexpr (ArbitrationCheck) {
+        if (SDA_Getter{}() == 0)
+          throw std::runtime_error("I2C: Arbitration lost during stop condition");
+      }
+
+      started_ = false;
+    }
+
+    void write_bit(bool bit) const {
+      SDA_Setter{}(bit);
+      delay();
+      SCL_Setter{}(1);
+      delay();
+
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
+
+      if constexpr (ArbitrationCheck) {
+        if (bit && (SDA_Getter{}() == 0))
+          throw std::runtime_error("I2C: Arbitration lost during bit writing");
+      }
+      SCL_Setter{}(0);
+    }
+
+    bool read_bit(void) const {
+      SDA_Setter{}(1);
+      delay();
+      SCL_Setter{}(1);
+
+      // handle clock stretching if supported
+      while (SCL_Getter{}() == 0) {
+        std::this_thread::sleep_for(delay_ns_ / 10);
+      }
+
+      delay();
+      auto result = SDA_Getter{}();
+      SCL_Setter{}(0);
+      return result;
+    }
+
+    bool write_byte(bool send_start, bool send_stop, uint_fast8_t byte) const {
+      bool nack;
+
+      if (send_start)
+        start_cond();
+
+      for (uint_fast8_t bit = 0; bit < 8; ++bit) {
+        write_bit((byte & 0x80) != 0);
+        byte <<= 1;
+      }
+
+      nack = read_bit();
+
+      if (send_stop)
+        stop_cond();
+
+      return nack;
+    }
+
+    uint_fast8_t read_byte(bool nack, bool send_stop) const {
+      uint_fast8_t byte = 0;
+
+      for (uint_fast8_t bit = 0; bit < 8; ++bit) {
+        byte = (byte << 1) | read_bit();
+      }
+
+      write_bit(nack);
+
+      if (send_stop)
+        stop_cond();
+
+      return byte;
+    }
+
+  private:
+    mutable bool started_ = false;
+  };
+
+
+  struct SDA_Setter_FE {
+    void operator()(bool bit) {
+      hw_interface::switch_status sw_status;
+      if(bit)
+        sw_status = hw_interface::HSD_STA_HIGH;
+      else
+        sw_status = hw_interface::HSD_STA_LOW;
+
+      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_DATA_WR,
+                                 sw_status,
+                                 std::cout);
+    }
+  };
+
+  struct SDA_Getter_FE {
+    bool operator()(void) {
+      const auto sw_status_opt = hw_interface::read_switch_status(hw_interface::HSD_SW_DIG_I2C_FE_DATA_RD,
+                                                                  std::cout);
+      return sw_status_opt.value() == hw_interface::HSD_STA_HIGH;
+    }
+  };
+
+  struct SCL_Setter_FE {
+    void operator()(bool bit) {
+      hw_interface::switch_status sw_status;
+      if (bit)
+        sw_status = hw_interface::HSD_STA_HIGH;
+      else
+        sw_status = hw_interface::HSD_STA_LOW;
+
+      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_CLK,
+                                 sw_status,
+                                 std::cout);
+    }
+  };
+
+  const I2CBitBang<SDA_Setter_FE, SDA_Getter_FE, SCL_Setter_FE> i2c_bitbanger_fe;
+
+  const std::array<std::reference_wrapper<const I2CInterface>, 1> i2c_bitbangers = {i2c_bitbanger_fe};
 
 } // namespace i2c_interface
