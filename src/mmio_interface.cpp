@@ -28,7 +28,7 @@ namespace mmio_interface {
 
   std::vector<uint8_t> MMIOInterface::read(const unsigned &offset,
                                            const unsigned &length,
-                                           std::ostream &out) {
+                                           std::ostream &out) const {
     logger::RAIIFlush raii_flush(out);
     if (offset >= _isa_size)
       throw std::runtime_error("Offset too large.");
@@ -42,22 +42,13 @@ namespace mmio_interface {
 
   void MMIOInterface::write(const unsigned &offset,
                             const std::vector<uint8_t> data,
-                            std::ostream &out) {
+                            std::ostream &out) const {
     logger::RAIIFlush raii_flush(out);
     if (offset >= _isa_size)
       throw std::runtime_error("Offset too large.");
     unsigned idx = 0;
     for(const auto &datum : data)
       *(_isa_base_ptr + offset + idx++) = datum;
-  }
-
-  bool CorrectionProcessorInterface::is_present(std::ostream &out) {
-    std::vector<uint8_t> check_data = {0x55, 0xaa};
-    auto restore_data = read(0x7fa, 2, out);
-    write(0x7fa, check_data, out);
-    auto readback_data = read(0x7fa, 2, out);
-    write(0x7fa, restore_data, out);
-    return check_data == readback_data;
   }
 
 }; /* namespace mmio_interface */

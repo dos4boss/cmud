@@ -6,104 +6,219 @@
 namespace board_interface {
   MAKE_LOCAL_LOGGER("board_interface");
 
-  enum ddc_type {DDC,
-                 DDC400,
-                 WDDC400,
-                 NOT_PRESENT};
+  bool check_if_board_present(const std::string &board_id, std::ostream &out, const unsigned &board_idx) {
+    logger::RAIIFlush raii_flush(out);
 
-  ddc_type get_ddc_type(const unsigned &board_idx, std::ostream &out) {
-    hw_interface::switch_id switch_0, switch_1, switch_2;
-    if (board_idx == 0) {
-      switch_0 = hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_0;
-      switch_1 = hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_1;
-      switch_2 = hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2;
+    const auto iter = std::find_if(boards.begin(), boards.end(),
+                                   [&](const std::reference_wrapper<const Board> &board) {
+                                     return (board.get().name_ == board_id) && (board.get().number_ == board_idx);
+                                   });
+
+    if(iter == boards.end()) {
+      LOGGER_ERROR("Board with name '{}' and board number {} does not exist.", board_id, board_idx);
+      return false;
     }
-    else if (board_idx == 1) {
-      switch_0 = hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_0;
-      switch_1 = hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_1;
-      switch_2 = hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2;
-    }
-    auto switch_val_0 = hw_interface::read_switch(switch_0, out);
-    auto switch_val_1 = hw_interface::read_switch(switch_1, out);
-    auto switch_val_2 = hw_interface::read_switch(switch_2, out);
 
-    if (!switch_val_0.has_value() || !switch_val_1.has_value() ||
-        !switch_val_2.has_value())
-      return NOT_PRESENT;
-
-    if ((switch_val_0.value() == hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_1.value() != hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_2.value() != hw_interface::HSD_STA_PRESENT))
-      return DDC;
-
-    if ((switch_val_0.value() == hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_1.value() == hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_2.value() != hw_interface::HSD_STA_PRESENT))
-      return DDC400;
-
-    if ((switch_val_0.value() == hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_1.value() != hw_interface::HSD_STA_PRESENT) &&
-        (switch_val_2.value() == hw_interface::HSD_STA_PRESENT))
-      return WDDC400;
-
-    return NOT_PRESENT;
+    return iter->get().is_present(out);
   }
 
-  bool check_if_module_present_single_switch_board_idx(const hw_interface::switch_id &switch_0,
-                                                       const hw_interface::switch_id &switch_1,
-                                                       const unsigned &board_idx,
-                                                       const hw_interface::switch_status &success_status,
-                                                       std::ostream &out) {
-    if (board_idx == 0) {
-      if (auto switch_val = hw_interface::read_switch(switch_0, out))
-        return switch_val.value() == success_status;
+  void check_for_present_boards(std::ostream &out) {
+    logger::RAIIFlush raii_flush(out);
+
+    for (const std::reference_wrapper<const Board> &board : boards) {
+      const auto is_present = board.get().is_present(out);
+      out << "Board " << board.get().name_ << " (" << +board.get().number_ << ") is "
+          << (is_present ? "present" : "not present") << std::endl;
     }
-    else if (board_idx == 1) {
-      if (auto switch_val = hw_interface::read_switch(switch_1, out))
-        return switch_val.value() == success_status;
-    }
-    else
-      LOGGER_ERROR("Invalid board idx");
-    return false;
   }
 
-  bool check_if_module_present(const std::string &board_id, std::ostream &out,
-                               const unsigned &board_idx) {
-    if (board_id == "ADC") {
-      return check_if_module_present_single_switch_board_idx(hw_interface::HSD_SW_DIG_ADC_1_OPT_POLL_0,
-                                                             hw_interface::HSD_SW_DIG_ADC_2_OPT_POLL_0,
-                                                             board_idx,
-                                                             hw_interface::switch_status::HSD_STA_PRESENT,
-                                                             out);
+  using presence_switch_check =
+    std::pair<hw_interface::switch_id, hw_interface::switch_status>;
+
+  template<size_t switch_number>
+  class BoardSwitchPresenceCheck : public virtual Board {
+  public:
+    BoardSwitchPresenceCheck(const board_idx &idx, char const *name, const uint_fast8_t &number,
+                             const std::array<presence_switch_check, switch_number> &switch_checks)
+      : Board(idx, name, number),
+        presence_switch_checks_(switch_checks) {}
+
+    bool is_present(std::ostream &out) const override {
+      bool result = true;
+      for(const auto &presence_switch : presence_switch_checks_) {
+        if (auto switch_val = hw_interface::read_switch_status(presence_switch.first, out))
+          result &= switch_val.value() == presence_switch.second;
+      }
+      return result;
     }
-    else if (board_id == "DDC") {
-      return get_ddc_type(board_idx, out) == DDC;
+
+  protected:
+    const std::array<presence_switch_check, switch_number> presence_switch_checks_;
+  };
+
+  class BoardPresenceAndReadViaCor : public virtual Board {
+  public:
+    BoardPresenceAndReadViaCor(const board_idx &idx, char const *name, const uint_fast8_t &number,
+                               const mmio_interface::MMIOInterface &mmio_interface)
+        : Board(idx, name, number), mmio_interface_(mmio_interface) {}
+
+    bool is_present(std::ostream &out) const override {
+      std::vector<uint8_t> check_data = {0x55, 0xaa};
+      auto restore_data = mmio_interface_.read(0x7fa, 2, out);
+      mmio_interface_.write(0x7fa, check_data, out);
+      auto readback_data = mmio_interface_.read(0x7fa, 2, out);
+      mmio_interface_.write(0x7fa, restore_data, out);
+      return check_data == readback_data;
     }
-    else if (board_id == "DDC400") {
-      return get_ddc_type(board_idx, out) == DDC400;
-    }
-    else if (board_id == "WDDC400") {
-      return get_ddc_type(board_idx, out) == WDDC400;
-    }
-    else if (board_id == "AUC") {
-      return check_if_module_present_single_switch_board_idx(hw_interface::HSD_SW_DIG_AUC_1_OPT_POLL_0,
-                                                             hw_interface::HSD_SW_DIG_AUC_2_OPT_POLL_0,
-                                                             board_idx,
-                                                             hw_interface::switch_status::HSD_STA_PRESENT,
-                                                             out);
-    }
-    else if (board_id == "DUC") {
-      return check_if_module_present_single_switch_board_idx(hw_interface::HSD_SW_DIG_DUC1_PRESENT,
-                                                             hw_interface::HSD_SW_DIG_DUC2_PRESENT,
-                                                             board_idx,
-                                                             hw_interface::switch_status::HSD_STA_DIG_DUC_PRESENT,
-                                                             out);
-    }
-    else if (board_id == "RXTX") {
-      mmio_interface::CorrectionProcessorInterface cor_pro(board_idx);
-      return cor_pro.is_present(out);
-    }
-    return false;
-  }
+
+    std::vector<uint8_t> read_eeprom(std::ostream &out) override { /* TODO */ }
+  protected:
+    const mmio_interface::MMIOInterface &mmio_interface_;
+  };
+
+  class BoardEEPROM24XX : public virtual Board {
+  public:
+    BoardEEPROM24XX(const board_idx &idx, char const *name,
+                    const uint_fast8_t &number, const uint_fast8_t &i2c_address)
+        : Board(idx, name, number), i2c_address_(i2c_address) {}
+
+    std::vector<uint8_t> read_eeprom(std::ostream &out) override { /* TODO */ }
+
+  protected:
+    const uint_fast8_t i2c_address_;
+  };
+
+  template <size_t switch_number>
+  class BoardSwitchPresenceCheckEEPROM24XX : public BoardSwitchPresenceCheck<switch_number>, public BoardEEPROM24XX {
+  public:
+    BoardSwitchPresenceCheckEEPROM24XX(const board_idx &idx, char const *name, const uint_fast8_t &number,
+                                       const std::array<presence_switch_check, switch_number> &switch_checks,
+                                       const uint_fast8_t &i2c_address)
+      : Board(idx, name, number),
+        BoardSwitchPresenceCheck<switch_number>(idx, name, number, switch_checks),
+        BoardEEPROM24XX(idx, name, number, i2c_address) {}
+  };
+
+  const BoardSwitchPresenceCheckEEPROM24XX<1> adc_0{ADC_0,
+                                                    "ADC",
+                                                    0,
+                                                    {std::make_pair(hw_interface::HSD_SW_DIG_ADC_1_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT)},
+                                                    0xAC};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<1> adc_1{ADC_1,
+                                                    "ADC",
+                                                    1,
+                                                    {std::make_pair(hw_interface::HSD_SW_DIG_ADC_2_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT)},
+                                                    0xAE};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<1> auc_0{AUC_0,
+                                                    "AUC",
+                                                    0,
+                                                    {std::make_pair(hw_interface::HSD_SW_DIG_AUC_1_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT)},
+                                                    0x80};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<1> auc_1{AUC_1,
+                                                    "AUC",
+                                                    1,
+                                                    {std::make_pair(hw_interface::HSD_SW_DIG_AUC_2_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT)},
+                                                    0xD0};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> ddc_0{DDC_0,
+                                                    "DDC",
+                                                    0,
+                                                    {
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT),
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_1,
+                                                                    hw_interface::HSD_STA_NOT_PRESENT),
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
+                                                                    hw_interface::HSD_STA_NOT_PRESENT),
+                                                    },
+                                                    0xA4};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> ddc_1{DDC_1,
+                                                    "DDC",
+                                                    1,
+                                                    {
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_0,
+                                                                    hw_interface::HSD_STA_PRESENT),
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_1,
+                                                                    hw_interface::HSD_STA_NOT_PRESENT),
+                                                     std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
+                                                                    hw_interface::HSD_STA_NOT_PRESENT),
+                                                    },
+                                                    0xA6};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> ddc400_0{DDC400_0,
+                                                       "DDC400",
+                                                       0,
+                                                       {
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_0,
+                                                                       hw_interface::HSD_STA_PRESENT),
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_1,
+                                                                       hw_interface::HSD_STA_PRESENT),
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
+                                                                       hw_interface::HSD_STA_NOT_PRESENT),
+                                                       },
+                                                       0xA4};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> ddc400_1{DDC400_1,
+                                                       "DDC400",
+                                                       1,
+                                                       {
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_0,
+                                                                       hw_interface::HSD_STA_PRESENT),
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_1,
+                                                                       hw_interface::HSD_STA_PRESENT),
+                                                        std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
+                                                                       hw_interface::HSD_STA_NOT_PRESENT),
+                                                       },
+                                                       0xA6};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> wddc400_0{WDDC400_0,
+                                                       "WDDC400",
+                                                        0,
+                                                        {
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_0,
+                                                                        hw_interface::HSD_STA_PRESENT),
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_1,
+                                                                        hw_interface::HSD_STA_NOT_PRESENT),
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
+                                                                        hw_interface::HSD_STA_PRESENT),
+                                                        },
+                                                        0xA4};
+
+  const BoardSwitchPresenceCheckEEPROM24XX<3> wddc400_1{WDDC400_1,
+                                                       "WDDC400",
+                                                        1,
+                                                        {
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_0,
+                                                                        hw_interface::HSD_STA_PRESENT),
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_1,
+                                                                        hw_interface::HSD_STA_NOT_PRESENT),
+                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
+                                                                        hw_interface::HSD_STA_PRESENT),
+                                                        },
+                                                        0xA6};
+
+  const mmio_interface::MMIOInterface cor1_interface{0xD4000},
+      cor2_interface{0xD5000};
+
+  const BoardPresenceAndReadViaCor rxtx_0{RXTX_0, "RXTX", 0, cor1_interface};
+  const BoardPresenceAndReadViaCor rxtx_1{RXTX_1, "RXTX", 1, cor2_interface};
+  const BoardPresenceAndReadViaCor cor_0{COR_0, "COR", 0, cor1_interface};
+  const BoardPresenceAndReadViaCor cor_1{COR_1, "COR", 1, cor2_interface};
+
+  const std::array<std::reference_wrapper<const Board>, 14> boards = {
+                                                                  //    {REF, "REF", 0},
+                                                                  adc_0, adc_1, auc_0, auc_1,
+                                                                  ddc_0, ddc_1, ddc400_0, ddc400_1, wddc400_0, wddc400_1,
+                                                                  rxtx_0, rxtx_1, cor_0, cor_1
+  };
+
 
 }; // namespace board_interface

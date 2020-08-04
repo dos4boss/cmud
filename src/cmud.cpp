@@ -33,11 +33,7 @@ int main(int argc, char *argv[]) {
 
   rootMenu->Insert("get_ch",
                    [](std::ostream &out) {
-                     std::vector<std::string> boards = {"ADC", "DDC", "DDC400", "WDDC400", "AUC", "DUC", "RXTX"};
-                     for (const auto &board : boards) {
-                       const auto present = board_interface::check_if_module_present(board, out);
-                       out << board << ": " << present <<std::endl;
-                     }
+                     board_interface::check_for_present_boards(out);
                    },
                    "get ch");
 

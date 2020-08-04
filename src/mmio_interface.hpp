@@ -14,10 +14,10 @@ namespace mmio_interface {
 
     std::vector<uint8_t> read(const unsigned &offset,
                               const unsigned &legnth,
-                              std::ostream &out);
+                              std::ostream &out) const;
     void write(const unsigned &offset,
                const std::vector<uint8_t> data,
-               std::ostream &out);
+               std::ostream &out) const;
 
   private:
     unsigned _isa_base_address;
