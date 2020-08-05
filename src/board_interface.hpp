@@ -62,7 +62,7 @@ namespace board_interface {
   class Board {
   public:
     Board(const board_idx &idx, char const *name, const uint_fast8_t &number)
-      : idx_(idx), name_(name), number_(number) {}
+      : idx_(idx), number_(number), name_(name) {}
     virtual bool is_present(std::ostream &out) const = 0;
     virtual std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
                                              const uint_fast16_t &length,
