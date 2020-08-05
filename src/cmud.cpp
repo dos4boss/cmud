@@ -1,6 +1,7 @@
 #include <chrono>
 #include <thread>
 #include <string>
+#include <fstream>
 
 #include <cli/clilocalsession.h>
 #include <cli/cli.h>
@@ -81,6 +82,10 @@ int main(int argc, char *argv[]) {
                      for(const auto &byte : result)
                        out << +byte << " ";
                      out << std::dec << std::endl;
+
+                     std::ofstream file(board_name + "_" + board_number + "_" + address + "_" + length + ".bin", std::ofstream::binary);
+                     file.write((const char*)result.data(), result.size());
+                     file.close();
                    },
                    "read eeprom of board and board_idx at address for bytes");
 
