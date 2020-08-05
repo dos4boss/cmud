@@ -5,6 +5,7 @@
 
 #include "hw_interface_helpers.hpp"
 #include "mmio_interface.hpp"
+#include "i2c_interface.hpp"
 
 namespace board_interface {
 
@@ -63,7 +64,9 @@ namespace board_interface {
     Board(const board_idx &idx, char const *name, const uint_fast8_t &number)
       : idx_(idx), name_(name), number_(number) {}
     virtual bool is_present(std::ostream &out) const = 0;
-    virtual std::vector<uint8_t> read_eeprom(std::ostream &out) = 0;
+    virtual std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
+                                             const uint_fast16_t &length,
+                                             std::ostream &out) const = 0;
 
     board_idx idx_;
     uint_fast8_t number_;

@@ -1,10 +1,12 @@
 #include <chrono>
 #include <thread>
+#include <string>
 
 #include <cli/clilocalsession.h>
 #include <cli/cli.h>
 #include <cli/filehistorystorage.h>
 #include <cli/clifilesession.h>
+#include <gsl/gsl-lite.hpp>
 
 #include "hw_interface_helpers.hpp"
 #include "board_interface.hpp"
@@ -36,6 +38,53 @@ int main(int argc, char *argv[]) {
                      board_interface::check_for_present_boards(out);
                    },
                    "get ch");
+
+  rootMenu->Insert("eep_read",
+                   [](std::ostream &out, const std::string &board_name, const std::string &board_number,
+                      const std::string &address, const std::string &length) {
+
+                     std::uint_fast8_t board_number_;
+                     try {
+                       board_number_ = gsl::narrow<uint8_t>(std::stoul(board_number, 0, 0));
+                     } catch (const std::exception &e) {
+                       out << "board_number " << board_number<< " is invalid (" << e.what() << ")" << std::endl;
+                       return;
+                     }
+                     std::uint_fast16_t address_;
+                     try {
+                       address_ = gsl::narrow<uint16_t>(std::stoul(address, 0, 0));
+                     } catch (const std::exception &e) {
+                       out << "address " << address << " is invalid (" << e.what() << ")" << std::endl;
+                       return;
+                     }
+
+                     std::uint_fast16_t length_;
+                     try {
+                       length_ = gsl::narrow<uint16_t>(std::stoul(length, 0, 0));
+                     } catch (const std::exception &e) {
+                       out << "length " << length << " is invalid (" << e.what() << ")" << std::endl;
+                       return;
+                     }
+
+                     const auto iter = std::find_if(board_interface::boards.begin(), board_interface::boards.end(),
+                                                    [&](const std::reference_wrapper<const board_interface::Board> &board) {
+                                                      out << "Name: " << board.get().name_ << " " << (board.get().name_ == board_name) << std::endl;
+                                                      out << "Number: " << +board.get().number_ << " " << (board.get().number_ == board_number_) << std::endl;
+                                                      return (board.get().name_ == board_name) && (board.get().number_ == board_number_);
+                                                    });
+
+                     if (iter == board_interface::boards.end()) {
+                       out << "Board does not exist" << std::endl;
+                       return;
+                     }
+
+                     const auto &result = iter->get().read_eeprom(address_, length_, out);
+                     out << std::hex;
+                     for(const auto &byte : result)
+                       out << +byte << " ";
+                     out << std::dec << std::endl;
+                   },
+                   "read eeprom of board and board_idx at address for bytes");
 
   rootMenu->Insert("dig_init",
                    [](std::ostream &out, const std::string fpga_str, const std::string file_path) {

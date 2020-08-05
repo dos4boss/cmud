@@ -20,6 +20,9 @@ namespace i2c_interface
 
     virtual void write(const uint_fast16_t &address, const std::vector<uint8_t> &data) const = 0;
     virtual std::vector<uint8_t> read(const uint_fast16_t &address, const uint_fast16_t &length) const = 0;
+    virtual std::vector<uint8_t> read_eeprom(const uint_fast16_t &device_address,
+                                             const uint_fast16_t &memory_address,
+                                             const uint_fast16_t &length) const = 0;
 
   protected:
     void delay(void) const;

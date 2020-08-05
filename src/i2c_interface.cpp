@@ -138,6 +138,12 @@ namespace i2c_interface {
     bool operator()(void) { return 1; }
   };
 
+  enum i2c_direction : bool {WRITE = 0,
+                             READ = 1};
+
+  enum i2c_ack : bool {ACK = 0,
+                       NACK = 1};
+
   template <class SDA_Setter, class SDA_Getter, class SCL_Setter,
             class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
   class I2CBitBang : public I2CInterface {
@@ -146,16 +152,16 @@ namespace i2c_interface {
 
     void write(const uint_fast16_t &address,
                const std::vector<uint8_t> &data) const override {
-      if (!write_byte(true, false, address)) {
-        bool nacks = false;
+      if (write_byte(true, false, address | i2c_direction::WRITE) == i2c_ack::ACK) {
+        i2c_ack ack = i2c_ack::ACK;
         for (const auto &byte : data) {
-          if (!nacks)
-            nacks = write_byte(false, false, byte);
+          if (ack == i2c_ack::ACK)
+            ack = write_byte(false, false, byte);
           else
             break;
         }
         stop_cond();
-        if (!nacks)
+        if (ack == i2c_ack::ACK)
           return;
       } else
         stop_cond();
@@ -167,15 +173,35 @@ namespace i2c_interface {
       std::vector<uint8_t> result;
       result.reserve(length);
 
-      if (!write_byte(true, false, address | 1)) {
+      if (!write_byte(true, false, address | i2c_direction::READ)) {
         for (uint_fast16_t k = 0; k < length; ++k) {
           const bool is_last = k == length - 1;
-          result.push_back(read_byte(is_last, is_last));
+          result.push_back(read_byte(is_last ? i2c_ack::NACK : i2c_ack::ACK, is_last));
         }
         return result;
       } else
         stop_cond();
       throw std::runtime_error("I2C: Reading failed because of missing ACK.");
+    }
+
+    std::vector<uint8_t> read_eeprom(const uint_fast16_t &device_address,
+                                     const uint_fast16_t &memory_address,
+                                     const uint_fast16_t &length) const override {
+      std::vector<uint8_t> result;
+      result.reserve(length);
+      if (write_byte(true, false, device_address | i2c_direction::WRITE) == i2c_ack::NACK)
+        goto NACK;
+      if (write_byte(false, false, memory_address) == i2c_ack::NACK)
+        goto NACK;
+      if (write_byte(true, false, device_address | i2c_direction::READ) == i2c_ack::NACK)
+        goto NACK;
+      for (size_t k = 0; k < length - 1; ++k)
+        result.push_back(read_byte(i2c_ack::ACK, false));
+      result.push_back(read_byte(i2c_ack::NACK, true));
+      return result;
+
+    NACK:
+      throw std::runtime_error("I2C: Reading EEPROM failed because of missing ACK.");
     }
 
   protected:
@@ -261,8 +287,8 @@ namespace i2c_interface {
       return result;
     }
 
-    bool write_byte(bool send_start, bool send_stop, uint_fast8_t byte) const {
-      bool nack;
+    i2c_ack write_byte(bool send_start, bool send_stop, uint_fast8_t byte) const {
+      i2c_ack ack;
 
       if (send_start)
         start_cond();
@@ -272,22 +298,22 @@ namespace i2c_interface {
         byte <<= 1;
       }
 
-      nack = read_bit();
+      ack = read_bit() ? i2c_ack::NACK : i2c_ack::ACK;
 
       if (send_stop)
         stop_cond();
 
-      return nack;
+      return ack;
     }
 
-    uint_fast8_t read_byte(bool nack, bool send_stop) const {
+    uint_fast8_t read_byte(i2c_ack ack, bool send_stop) const {
       uint_fast8_t byte = 0;
 
       for (uint_fast8_t bit = 0; bit < 8; ++bit) {
         byte = (byte << 1) | read_bit();
       }
 
-      write_bit(nack);
+      write_bit((ack == i2c_ack::ACK) ? 0 : 1);
 
       if (send_stop)
         stop_cond();
@@ -336,8 +362,19 @@ namespace i2c_interface {
     }
   };
 
-  const I2CBitBang<SDA_Setter_FE, SDA_Getter_FE, SCL_Setter_FE> i2c_bitbanger_fe;
+  template <class SDA_Setter, class SDA_Getter, class SCL_Setter,
+            class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
+  class I2CBitBang24XXEEPROM : public I2CBitBang<SDA_Setter, SDA_Getter, SCL_Setter, SCL_Getter, ArbitrationCheck> {
+  public:
+    I2CBitBang24XXEEPROM(const uint_fast32_t &bits_per_second = 100000)
+      : I2CBitBang<SDA_Setter, SDA_Getter, SCL_Setter, SCL_Getter, ArbitrationCheck>(bits_per_second) {}
 
-  const std::array<std::reference_wrapper<const I2CInterface>, 1> i2c_bitbangers = {i2c_bitbanger_fe};
+  };
+
+    const I2CBitBang24XXEEPROM<SDA_Setter_FE, SDA_Getter_FE, SCL_Setter_FE>
+        i2c_bitbanger_fe;
+
+    const std::array<std::reference_wrapper<const I2CInterface>, 1>
+        i2c_bitbangers = {i2c_bitbanger_fe};
 
 } // namespace i2c_interface

@@ -71,7 +71,9 @@ namespace board_interface {
       return check_data == readback_data;
     }
 
-    std::vector<uint8_t> read_eeprom(std::ostream &out) override { /* TODO */ }
+    std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
+                                     const uint_fast16_t &length,
+                                     std::ostream &out) const override { return {}; /* TODO */ }
   protected:
     const mmio_interface::MMIOInterface &mmio_interface_;
   };
@@ -79,13 +81,19 @@ namespace board_interface {
   class BoardEEPROM24XX : public virtual Board {
   public:
     BoardEEPROM24XX(const board_idx &idx, char const *name,
-                    const uint_fast8_t &number, const uint_fast8_t &i2c_address)
-        : Board(idx, name, number), i2c_address_(i2c_address) {}
+                    const uint_fast8_t &number, const uint_fast8_t &i2c_address,
+                    const i2c_interface::i2c_interfaces &i2c_interface)
+      : Board(idx, name, number), i2c_address_(i2c_address), i2c_interface_(i2c_interface) {}
 
-    std::vector<uint8_t> read_eeprom(std::ostream &out) override { /* TODO */ }
+    std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
+                                     const uint_fast16_t &length,
+                                     std::ostream &out) const override {
+      return i2c_interface::i2c_bitbangers[i2c_interface_].get().read_eeprom(i2c_address_, memory_address, length);
+    }
 
   protected:
     const uint_fast8_t i2c_address_;
+    const i2c_interface::i2c_interfaces i2c_interface_;
   };
 
   template <size_t switch_number>
@@ -93,10 +101,10 @@ namespace board_interface {
   public:
     BoardSwitchPresenceCheckEEPROM24XX(const board_idx &idx, char const *name, const uint_fast8_t &number,
                                        const std::array<presence_switch_check, switch_number> &switch_checks,
-                                       const uint_fast8_t &i2c_address)
-      : Board(idx, name, number),
-        BoardSwitchPresenceCheck<switch_number>(idx, name, number, switch_checks),
-        BoardEEPROM24XX(idx, name, number, i2c_address) {}
+                                       const uint_fast8_t &i2c_address, const i2c_interface::i2c_interfaces &i2c_interface)
+        : Board(idx, name, number), BoardSwitchPresenceCheck<switch_number>(
+                                        idx, name, number, switch_checks),
+          BoardEEPROM24XX(idx, name, number, i2c_address, i2c_interface) {}
   };
 
   const BoardSwitchPresenceCheckEEPROM24XX<1> adc_0{ADC_0,
@@ -104,28 +112,32 @@ namespace board_interface {
                                                     0,
                                                     {std::make_pair(hw_interface::HSD_SW_DIG_ADC_1_OPT_POLL_0,
                                                                     hw_interface::HSD_STA_PRESENT)},
-                                                    0xAC};
+                                                    0xAC,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<1> adc_1{ADC_1,
                                                     "ADC",
                                                     1,
                                                     {std::make_pair(hw_interface::HSD_SW_DIG_ADC_2_OPT_POLL_0,
                                                                     hw_interface::HSD_STA_PRESENT)},
-                                                    0xAE};
+                                                    0xAE,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<1> auc_0{AUC_0,
                                                     "AUC",
                                                     0,
                                                     {std::make_pair(hw_interface::HSD_SW_DIG_AUC_1_OPT_POLL_0,
                                                                     hw_interface::HSD_STA_PRESENT)},
-                                                    0x80};
+                                                    0x80,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<1> auc_1{AUC_1,
                                                     "AUC",
                                                     1,
                                                     {std::make_pair(hw_interface::HSD_SW_DIG_AUC_2_OPT_POLL_0,
                                                                     hw_interface::HSD_STA_PRESENT)},
-                                                    0xD0};
+                                                    0xD0,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> ddc_0{DDC_0,
                                                     "DDC",
@@ -138,7 +150,8 @@ namespace board_interface {
                                                      std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
                                                                     hw_interface::HSD_STA_NOT_PRESENT),
                                                     },
-                                                    0xA4};
+                                                    0xA4,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> ddc_1{DDC_1,
                                                     "DDC",
@@ -151,7 +164,8 @@ namespace board_interface {
                                                      std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
                                                                     hw_interface::HSD_STA_NOT_PRESENT),
                                                     },
-                                                    0xA6};
+                                                    0xA6,
+                                                    i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> ddc400_0{DDC400_0,
                                                        "DDC400",
@@ -164,7 +178,8 @@ namespace board_interface {
                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
                                                                        hw_interface::HSD_STA_NOT_PRESENT),
                                                        },
-                                                       0xA4};
+                                                       0xA4,
+                                                       i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> ddc400_1{DDC400_1,
                                                        "DDC400",
@@ -177,7 +192,8 @@ namespace board_interface {
                                                         std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
                                                                        hw_interface::HSD_STA_NOT_PRESENT),
                                                        },
-                                                       0xA6};
+                                                       0xA6,
+                                                       i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> wddc400_0{WDDC400_0,
                                                        "WDDC400",
@@ -190,7 +206,8 @@ namespace board_interface {
                                                          std::make_pair(hw_interface::HSD_SW_DIG_DDC_1_OPT_POLL_2,
                                                                         hw_interface::HSD_STA_PRESENT),
                                                         },
-                                                        0xA4};
+                                                        0xA4,
+                                                        i2c_interface::i2c_interfaces::FE};
 
   const BoardSwitchPresenceCheckEEPROM24XX<3> wddc400_1{WDDC400_1,
                                                        "WDDC400",
@@ -203,7 +220,8 @@ namespace board_interface {
                                                          std::make_pair(hw_interface::HSD_SW_DIG_DDC_2_OPT_POLL_2,
                                                                         hw_interface::HSD_STA_PRESENT),
                                                         },
-                                                        0xA6};
+                                                        0xA6,
+                                                        i2c_interface::i2c_interfaces::FE};
 
   const mmio_interface::MMIOInterface cor1_interface{0xD4000},
       cor2_interface{0xD5000};
