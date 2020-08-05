@@ -334,16 +334,18 @@ namespace i2c_interface {
       else
         sw_status = hw_interface::HSD_STA_LOW;
 
+      logger::NullStream null_stream;
       hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_DATA_WR,
                                  sw_status,
-                                 std::cout);
+                                 null_stream);
     }
   };
 
   struct SDA_Getter_FE {
     bool operator()(void) {
+      logger::NullStream null_stream;
       const auto sw_status_opt = hw_interface::read_switch_status(hw_interface::HSD_SW_DIG_I2C_FE_DATA_RD,
-                                                                  std::cout);
+                                                                  null_stream);
       return sw_status_opt.value() == hw_interface::HSD_STA_HIGH;
     }
   };
@@ -356,9 +358,10 @@ namespace i2c_interface {
       else
         sw_status = hw_interface::HSD_STA_LOW;
 
+      logger::NullStream null_stream;
       hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_CLK,
                                  sw_status,
-                                 std::cout);
+                                 null_stream);
     }
   };
 

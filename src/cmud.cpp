@@ -68,8 +68,6 @@ int main(int argc, char *argv[]) {
 
                      const auto iter = std::find_if(board_interface::boards.begin(), board_interface::boards.end(),
                                                     [&](const std::reference_wrapper<const board_interface::Board> &board) {
-                                                      out << "Name: " << board.get().name_ << " " << (board.get().name_ == board_name) << std::endl;
-                                                      out << "Number: " << +board.get().number_ << " " << (board.get().number_ == board_number_) << std::endl;
                                                       return (board.get().name_ == board_name) && (board.get().number_ == board_number_);
                                                     });
 
