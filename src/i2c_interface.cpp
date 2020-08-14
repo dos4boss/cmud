@@ -325,8 +325,8 @@ namespace i2c_interface {
     mutable bool started_ = false;
   };
 
-
-  struct SDA_Setter_FE {
+  template <hw_interface::switch_id SWITCH_ID>
+  struct Setter_Switch {
     void operator()(bool bit) {
       hw_interface::switch_status sw_status;
       if(bit)
@@ -335,49 +335,32 @@ namespace i2c_interface {
         sw_status = hw_interface::HSD_STA_LOW;
 
       logger::NullStream null_stream;
-      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_DATA_WR,
+      hw_interface::write_switch(SWITCH_ID,
                                  sw_status,
                                  null_stream);
     }
   };
 
-  struct SDA_Getter_FE {
+  template <hw_interface::switch_id SWITCH_ID>
+  struct Getter_Switch {
     bool operator()(void) {
       logger::NullStream null_stream;
-      const auto sw_status_opt = hw_interface::read_switch_status(hw_interface::HSD_SW_DIG_I2C_FE_DATA_RD,
+      const auto sw_status_opt = hw_interface::read_switch_status(SWITCH_ID,
                                                                   null_stream);
       return sw_status_opt.value() == hw_interface::HSD_STA_HIGH;
     }
   };
 
-  struct SCL_Setter_FE {
-    void operator()(bool bit) {
-      hw_interface::switch_status sw_status;
-      if (bit)
-        sw_status = hw_interface::HSD_STA_HIGH;
-      else
-        sw_status = hw_interface::HSD_STA_LOW;
 
-      logger::NullStream null_stream;
-      hw_interface::write_switch(hw_interface::HSD_SW_DIG_I2C_FE_CLK,
-                                 sw_status,
-                                 null_stream);
-    }
-  };
+  const I2CBitBang<Setter_Switch<hw_interface::HSD_SW_DIG_I2C_FE_DATA_WR>,
+                   Getter_Switch<hw_interface::HSD_SW_DIG_I2C_FE_DATA_RD>,
+                   Setter_Switch<hw_interface::HSD_SW_DIG_I2C_FE_CLK>> i2c_bitbanger_fe;
+  const I2CBitBang<Setter_Switch<hw_interface::HSD_SW_REF_I2C_SDA>,
+                   Getter_Switch<hw_interface::HSD_SW_REF_I2C_SIN>,
+                   Setter_Switch<hw_interface::HSD_SW_REF_I2C_SCL>> i2c_bitbanger_ref;
 
-  template <class SDA_Setter, class SDA_Getter, class SCL_Setter,
-            class SCL_Getter = DefaultSCLGetter, bool ArbitrationCheck = false>
-  class I2CBitBang24XXEEPROM : public I2CBitBang<SDA_Setter, SDA_Getter, SCL_Setter, SCL_Getter, ArbitrationCheck> {
-  public:
-    I2CBitBang24XXEEPROM(const uint_fast32_t &bits_per_second = 100000)
-      : I2CBitBang<SDA_Setter, SDA_Getter, SCL_Setter, SCL_Getter, ArbitrationCheck>(bits_per_second) {}
 
-  };
-
-    const I2CBitBang24XXEEPROM<SDA_Setter_FE, SDA_Getter_FE, SCL_Setter_FE>
-        i2c_bitbanger_fe;
-
-    const std::array<std::reference_wrapper<const I2CInterface>, 1>
-        i2c_bitbangers = {i2c_bitbanger_fe};
+  const std::array<std::reference_wrapper<const I2CInterface>, 2> i2c_bitbangers = {i2c_bitbanger_fe,
+                                                                                    i2c_bitbanger_ref};
 
 } // namespace i2c_interface

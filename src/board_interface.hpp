@@ -74,4 +74,6 @@ namespace board_interface {
   };
 
   extern const std::array<std::reference_wrapper<const Board>, 14> boards;
-};
+  extern const mmio_interface::CorrectionProcessorInterface cor1_interface, cor2_interface;
+
+} // namespace board_interface

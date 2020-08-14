@@ -95,6 +95,12 @@ int main(int argc, char *argv[]) {
                    },
                    "Load bitstream to fpga");
 
+  rootMenu->Insert("cor_gv",
+                   [](std::ostream &out) {
+                     board_interface::cor1_interface.get_version(out);
+                   },
+                   "Get correction processor firmware version");
+
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(seconds));

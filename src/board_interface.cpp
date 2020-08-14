@@ -59,23 +59,18 @@ namespace board_interface {
   class BoardPresenceAndReadViaCor : public virtual Board {
   public:
     BoardPresenceAndReadViaCor(const board_idx &idx, char const *name, const uint_fast8_t &number,
-                               const mmio_interface::MMIOInterface &mmio_interface)
-        : Board(idx, name, number), mmio_interface_(mmio_interface) {}
+                               const mmio_interface::CorrectionProcessorInterface &corpro_interface)
+        : Board(idx, name, number), corpro_interface_(corpro_interface) {}
 
     bool is_present(std::ostream &out) const override {
-      std::vector<uint8_t> check_data = {0x55, 0xaa};
-      auto restore_data = mmio_interface_.read(0x7fa, 2, out);
-      mmio_interface_.write(0x7fa, check_data, out);
-      auto readback_data = mmio_interface_.read(0x7fa, 2, out);
-      mmio_interface_.write(0x7fa, restore_data, out);
-      return check_data == readback_data;
+      return corpro_interface_.is_present(out);
     }
 
     std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
                                      const uint_fast16_t &length,
                                      std::ostream &out) const override { return {}; /* TODO */ }
   protected:
-    const mmio_interface::MMIOInterface &mmio_interface_;
+    const mmio_interface::CorrectionProcessorInterface &corpro_interface_;
   };
 
   class BoardEEPROM24XX : public virtual Board {
@@ -106,6 +101,105 @@ namespace board_interface {
                                         idx, name, number, switch_checks),
           BoardEEPROM24XX(idx, name, number, i2c_address, i2c_interface) {}
   };
+
+
+
+  class I2CSwitcherUSURAII {
+  public:
+    using switch_with_value = std::pair<hw_interface::switch_id, hw_interface::switch_status>;
+
+    I2CSwitcherUSURAII(const Board &board, std::ostream &out) : board_(board), out_(out) {
+      if (board_.number_ > 1)
+        throw std::runtime_error("Board number has to be 0 or 1");
+
+      const std::array<std::array<switch_with_value, 3>, 2> general_switches = {
+          {{std::make_pair(hw_interface::HSD_SW_USU1_I2C_SDA, hw_interface::HSD_STA_HIGH),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SCL, hw_interface::HSD_STA_HIGH),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SOURCE, hw_interface::HSD_STA_USU_I2C_SOURCE_FPGA)},
+           {std::make_pair(hw_interface::HSD_SW_USU2_I2C_SDA, hw_interface::HSD_STA_HIGH),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SCL, hw_interface::HSD_STA_HIGH),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SOURCE, hw_interface::HSD_STA_USU_I2C_SOURCE_FPGA)}}};
+
+      for (const auto &sw_with_val : general_switches[board_.number_])
+        hw_interface::write_switch(sw_with_val.first, sw_with_val.second, out_);
+
+      if ((board_.idx_ == board_idx::Bluetooth_0) || (board_.idx_ == board_idx::Bluetooth_1) ||
+          (board_.idx_ == board_idx::USU_0) || (board_.idx_ == board_idx::USU_1)) {
+        const std::array<std::array<switch_with_value, 2>, 2> bt_usu_switches = {
+          {{std::make_pair(hw_interface::HSD_SW_USU1_I2C_PPC_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE)},
+           {std::make_pair(hw_interface::HSD_SW_USU2_I2C_PPC_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE)}}};
+
+        for (const auto &sw_with_val : bt_usu_switches[board_.number_])
+          hw_interface::write_switch(sw_with_val.first, sw_with_val.second, out_);
+      }
+
+      if ((board_.idx_ == board_idx::PowerQuiccII_0) || (board_.idx_ == board_idx::PowerQuiccII_1) ||
+          (board_.idx_ == board_idx::PowerQuiccIII_0) || (board_.idx_ == board_idx::PowerQuiccIII_1)) {
+
+        const std::array<std::array<switch_with_value, 2>, 2> powerquicc_setup_switches = {
+          {{std::make_pair(hw_interface::HSD_SW_USU1_PPC_CLK_ENABLE, hw_interface::HSD_STA_ENABLE),
+            std::make_pair(hw_interface::HSD_SW_USU1_PPC_RESET, hw_interface::HSD_STA_ENABLE)},
+           {std::make_pair(hw_interface::HSD_SW_USU2_PPC_CLK_ENABLE, hw_interface::HSD_STA_ENABLE),
+            std::make_pair(hw_interface::HSD_SW_USU2_PPC_RESET, hw_interface::HSD_STA_ENABLE)}}};
+
+        for (const auto &sw_with_val : powerquicc_setup_switches[board_.number_])
+          hw_interface::write_switch(sw_with_val.first, sw_with_val.second, out_);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(800));
+
+        const std::array<std::array<switch_with_value, 2>, 2> powerquicc_switches = {
+          {{std::make_pair(hw_interface::HSD_SW_USU1_I2C_PPC_ENABLE, hw_interface::HSD_STA_ENABLE),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE)},
+           {std::make_pair(hw_interface::HSD_SW_USU2_I2C_PPC_ENABLE, hw_interface::HSD_STA_ENABLE),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE)}}};
+
+        for (const auto &sw_with_val : powerquicc_switches[board_.number_])
+          hw_interface::write_switch(sw_with_val.first, sw_with_val.second, out_);
+      }
+
+    }
+
+    ~I2CSwitcherUSURAII(void) {
+      const std::array<std::array<switch_with_value, 3>, 2> general_switches = {
+          {{std::make_pair(hw_interface::HSD_SW_USU1_I2C_PPC_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU1_I2C_SOURCE, hw_interface::HSD_STA_USU_I2C_SOURCE_MC)},
+           {std::make_pair(hw_interface::HSD_SW_USU2_I2C_PPC_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SP_ENABLE, hw_interface::HSD_STA_DISABLE),
+            std::make_pair(hw_interface::HSD_SW_USU2_I2C_SOURCE, hw_interface::HSD_STA_USU_I2C_SOURCE_MC)}}};
+
+      for (const auto &sw_with_val : general_switches[board_.number_])
+        hw_interface::write_switch(sw_with_val.first, sw_with_val.second, out_);
+    }
+
+  private:
+    const Board &board_;
+    std::ostream &out_;
+  };
+
+
+  class I2CSwitcherAudioRAII {
+  public:
+    I2CSwitcherAudioRAII(const Board &board, std::ostream &out) : board_(board), out_(out) {
+      const auto switch_status = hw_interface::read_switch_status(hw_interface::HSD_SW_AUDIO_I2C_BUSY_READ, out_);
+      if (switch_status.value() == hw_interface::HSD_STA_AUDIO_I2C_BUSY)
+        throw std::runtime_error("Audio I2C still busy");
+
+      hw_interface::write_switch(hw_interface::HSD_SW_AUDIO_I2C_BUSY_WRITE, hw_interface::HSD_STA_AUDIO_I2C_BUSY, out_);
+    }
+
+    ~I2CSwitcherAudioRAII(void) {
+      hw_interface::write_switch(hw_interface::HSD_SW_AUDIO_I2C_BUSY_WRITE, hw_interface::HSD_STA_AUDIO_I2C_NOT_BUSY, out_);
+    }
+
+  private:
+    const Board &board_;
+    std::ostream &out_;
+  };
+
+
 
   const BoardSwitchPresenceCheckEEPROM24XX<1> adc_0{ADC_0,
                                                     "ADC",
@@ -223,8 +317,8 @@ namespace board_interface {
                                                         0xA6,
                                                         i2c_interface::i2c_interfaces::FE};
 
-  const mmio_interface::MMIOInterface cor1_interface{0xD4000},
-      cor2_interface{0xD5000};
+  const mmio_interface::CorrectionProcessorInterface cor1_interface{0},
+             cor2_interface{1};
 
   const BoardPresenceAndReadViaCor rxtx_0{RXTX_0, "RXTX", 0, cor1_interface};
   const BoardPresenceAndReadViaCor rxtx_1{RXTX_1, "RXTX", 1, cor2_interface};

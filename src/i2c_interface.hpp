@@ -42,8 +42,9 @@ namespace i2c_interface
 
   enum i2c_interfaces {
                        FE = 0,
+                       REF = 1,
   };
 
-  extern const std::array<std::reference_wrapper<const I2CInterface>, 1> i2c_bitbangers;
+  extern const std::array<std::reference_wrapper<const I2CInterface>, 2> i2c_bitbangers;
 
 } // namespace i2c_interface

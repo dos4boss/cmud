@@ -219,7 +219,7 @@ namespace logger {
   class LoggerSink {
   public:
     static auto &getInstance() {
-      static auto instance = std::make_shared<spdlog::sinks::ringbuffer_color_sink_mt>(10,
+      static auto instance = std::make_shared<spdlog::sinks::ringbuffer_color_sink_mt>(100,
                                                                                        spdlog::color_mode::automatic);
       if(!initialized_) {
         instance->set_level(spdlog::level::trace);
