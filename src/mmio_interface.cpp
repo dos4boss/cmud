@@ -156,7 +156,11 @@ namespace mmio_interface {
     const auto [err, result] = interact<uint8_t, uint16_t>(0xc, std::chrono::seconds(1), {}, 0x30 >> 1, out);
     if (err == error_code::CommandSuccessful) {
       char second_val = '.';
-      out << fmt::format("Version {}{}{}", result[0] >> 8, second_val, result[0] & 0xFF);
+      out << fmt::format("Version {}{}{}, Date {}-{}-{}",
+                         result[0] >> 8, second_val, result[0] & 0xFF,
+                         (result[1] >> 9) + 1980, (result[1] >> 5) & 0xF, result[1] & 0x1F) << std::endl;
+      if (result[0] >= 0x500)
+        out << fmt::format("{:.{}}", (char*)(result.data() + 2), 40) << std::endl;
     }
     else
       LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
