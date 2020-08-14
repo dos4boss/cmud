@@ -152,18 +152,83 @@ namespace mmio_interface {
     return std::make_pair(err, result);
   }
 
-  void CorrectionProcessorInterface::get_version(std::ostream &out) const {
-    const auto [err, result] = interact<uint8_t, uint16_t>(0xc, std::chrono::seconds(1), {}, 0x30 >> 1, out);
+  uint_fast16_t CorrectionProcessorInterface::get_version(std::ostream &out) const {
+    const auto [err, result] = interact<uint8_t, uint16_t>(0x0C, std::chrono::seconds(1), {}, 0x30 >> 1, out);
     if (err == error_code::CommandSuccessful) {
-      char second_val = '.';
-      out << fmt::format("Version {}{}{}, Date {}-{}-{}",
-                         result[0] >> 8, second_val, result[0] & 0xFF,
+      char second_val = '.', fourth_val = 'i';
+      if ((result[0] >= 0x53C) && (*(((char*)result.data()) + 0x2C) != 'V')) {
+        second_val = 'X';
+        // TODO no idea what is going on here
+        // char decision_val = *(((char*)result.data()) + 0x2D);
+        // if ((result[0] >= 0x70A) && (decision_val >= 0x61) && (decision_val <= 0x7A)) {
+        //   fourth_val = decision_val;
+
+        // }
+      }
+
+      out << fmt::format("Version {}{}{:02}{}, Date {}-{:02}-{:02}",
+                         result[0] >> 8, second_val, result[0] & 0xFF, fourth_val,
                          (result[1] >> 9) + 1980, (result[1] >> 5) & 0xF, result[1] & 0x1F) << std::endl;
       if (result[0] >= 0x500)
         out << fmt::format("{:.{}}", (char*)(result.data() + 2), 40) << std::endl;
+
+      return (result[0] & 0xFF) + ((result[0] & 0xFFFF) >> 8) * 100;
     }
     else
       LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
+    return 0;
+  }
+
+  struct cor_board_info {
+    uint16_t board_revision;
+    uint16_t read_code_0, read_code_1;
+    uint16_t fpga_type;
+    uint8_t product_index_0, product_index_1;
+    uint16_t product_year;
+    uint8_t product_month, product_day;
+    uint8_t test_instruction_0, test_instruction_1;
+    uint16_t part_number_0, part_number_1;
+    uint8_t part_number_2;
+    uint8_t run_state;
+    uint8_t hw_code_0, hw_code_1;
+    uint32_t serial_number_0;
+    uint16_t serial_number_1;
+    uint8_t user_correction_rx;
+    uint8_t user_correction_tx;
+    uint16_t unknown;
+  } __attribute__((packed));
+
+  void CorrectionProcessorInterface::get_board_info(std::ostream &out) const {
+    const auto version = get_version(out);
+
+    if (version >= 580) {
+      const auto [err, result] = interact<uint8_t, uint16_t>(0x55, std::chrono::seconds(1), {}, 0x22 >> 1, out);
+      cor_board_info *cor_board_info = (struct cor_board_info*)result.data();
+      if (err == error_code::CommandSuccessful) {
+        out << fmt::format("Part number:           {:04}.{:04}.{:02}\n"
+                           "HW-Code EEPROM/FPGA:   {:02}/{:02}\n"
+                           "Product index:         {:02}.{:02}\n"
+                           "Serial number:         {:06}/{:03}\n"
+                           "Product date:          {:04}-{:02}-{:02}\n"
+                           "Read code EEPROM/INT:  {}/{}\n"
+                           "Test instruction:      {:02}.{:02}\n"
+                           "Board revision:        DG{:02}\n"
+                           "Run state:             {}\n"
+                           "FPGA type:             {}\n",
+                           cor_board_info->part_number_0, cor_board_info->part_number_1, cor_board_info->part_number_2,
+                           cor_board_info->hw_code_0, cor_board_info->hw_code_1,
+                           cor_board_info->product_index_0, cor_board_info->product_index_1,
+                           cor_board_info->serial_number_0, cor_board_info->serial_number_1,
+                           cor_board_info->product_year, cor_board_info->product_month, cor_board_info->product_day,
+                           cor_board_info->read_code_0, cor_board_info->read_code_1,
+                           cor_board_info->test_instruction_0, cor_board_info->test_instruction_1,
+                           cor_board_info->board_revision,
+                           cor_board_info->run_state,
+                           cor_board_info->fpga_type);
+      }
+      else
+        LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
+    }
   }
 
 }; /* namespace mmio_interface */

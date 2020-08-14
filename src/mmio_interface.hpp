@@ -48,7 +48,8 @@ namespace mmio_interface {
                          : throw std::runtime_error("Wrong board idx (muste be 0 or 1)."))} {}
 
     bool is_present(std::ostream &out) const;
-    void get_version(std::ostream &out) const;
+    uint_fast16_t get_version(std::ostream &out) const;
+    void get_board_info(std::ostream &out) const;
 
   protected:
     error_code wait_for_status_or_timeout(const uint_fast8_t &status,

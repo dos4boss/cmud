@@ -101,6 +101,12 @@ int main(int argc, char *argv[]) {
                    },
                    "Get correction processor firmware version");
 
+  rootMenu->Insert("cor_gbi",
+                   [](std::ostream &out) {
+                     board_interface::cor1_interface.get_board_info(out);
+                   },
+                   "Get correction processor board info");
+
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(seconds));
