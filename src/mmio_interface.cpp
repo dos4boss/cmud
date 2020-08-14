@@ -225,6 +225,20 @@ namespace mmio_interface {
                            cor_board_info->board_revision,
                            cor_board_info->run_state,
                            cor_board_info->fpga_type);
+        if (version >= 650) {
+          out << fmt::format("User correction RX:   RF4IN:  {:b}, RF2IN:  {:b}, RF1IN:  {:b}\n"
+                             "User correction TX:   RF3OUT: {:b}, RF2OUT: {:b}, RF1OUT: {:b}\n",
+                             cor_board_info->user_correction_rx & 4, cor_board_info->user_correction_rx & 2, cor_board_info->user_correction_rx & 1,
+                             cor_board_info->user_correction_tx & 4, cor_board_info->user_correction_tx & 2, cor_board_info->user_correction_tx & 1);
+        }
+        if (version >= 631) {
+          if (version >= 800) {
+            out << fmt::format("Syncon ref.-divider:  {}\n", cor_board_info->unknown == 1 ? "10E016" : "RFDIV");
+          } else {
+            out << fmt::format("Frontend type:        {}\n", cor_board_info->unknown == 1 ? "RF1 = RF2" : "RF1 <> RF2");
+          }
+        }
+
       }
       else
         LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
