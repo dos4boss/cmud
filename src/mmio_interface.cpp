@@ -77,10 +77,46 @@ namespace mmio_interface {
   std::string error_code_to_string(const error_code &err) {
     switch(err) {
     case error_code::CommandSuccessful: return "Command successful";
-    case error_code::CommunicationError: return "Communication error";
+    case error_code::GeneralError: return "General error";
+    case error_code::TableNotFound: return "Table not found";
+    case error_code::OutOfMemory: return "Out of memory";
+    case error_code::ChecksumError: return "Checksum error";
+    case error_code::DataExceedsMemoryLimits: return "Data exceeds memory limits";
+    case error_code::PermissionDenied: return "Permission denied";
+    case error_code::TooManyOpenTables: return "Too many open tables";
+    case error_code::EPROMBufferOverflow: return "EPROM Buffer overflow";
+    case error_code::TableBlockNotValid: return "Table block not valid";
+    case error_code::IndexOutOfRange: return "Index out of range";
+    case error_code::UnknownCommand: return "Unknown Command";
+    case error_code::TableIdNotValid: return "Table ID not valid";
+    case error_code::NoSettingTable: return "No setting table";
+    case error_code::NoDeviationTable: return "No deviation table";
+    case error_code::HardwareNotSupported: return "Hardware not supported";
+    case error_code::InvalidSwitchSetting: return "Invalid switch setting";
+    case error_code::InvalidSignalDirection: return "Invalid signal direction";
+    case error_code::InvalidArgument: return "Invalid argument";
+    case error_code::InvalidFrequencyBand: return "Invalid frequency band";
+    case error_code::IllegalMemorySpecifier: return "Illegal memory specifier";
+    case error_code::FlashError: return "Flash error";
+    case error_code::I2CError: return "I2C error";
+    case error_code::DeviceError: return "Device error";
+    case error_code::TooManyFrequencies: return "Too many frequencies";
+    case error_code::WrongEndianess: return "Wrong endianess";
+    case error_code::UnknownDatatype: return "Unknown datatype";
+    case error_code::TimeoutError: return "Timeout error";
     case error_code::ProcessorBusy: return "Processor busy";
     case error_code::ProcessorDoesNotRespond: return "Process does not respond";
-    case error_code::TimeoutError: return "Timeout error";
+    case error_code::CommunicationError: return "Communication error";
+    case error_code::UnknownParameterId: return "Unknown parameter ID";
+    case error_code::InvalidParameterSize: return "Invalid parameter size";
+    case error_code::InvalidMessageStructure: return "Invalid message structure";
+    case error_code::ParameterTooLarge: return "Parameter too large";
+    case error_code::CheckrepairFailed: return "Checkrepair failed";
+    case error_code::LevelOverflow: return "Level overflow";
+    case error_code::OptionalTableNotFound: return "Optional table not found";
+    case error_code::BitPatternTestFailed: return "Bit pattern test failed";
+    case error_code::AddressTestFailed: return "Address test failed";
+
     default:
       return "Unkown error code";
     }
@@ -137,7 +173,7 @@ namespace mmio_interface {
           write(0, std::vector<uint8_t>{0}, out);
           err = wait_for_status_or_timeout(0, timeout, out);
           if (err == error_code::CommandSuccessful)
-            err = error_code(read<uint16_t>(2, 2, out)[0]);
+            err = error_code(read<int16_t>(2, 2, out)[0]);
         }
         else err = error_code::ProcessorDoesNotRespond;
       }

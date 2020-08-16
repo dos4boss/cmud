@@ -46,6 +46,8 @@ namespace board_interface {
         presence_switch_checks_(switch_checks) {}
 
     bool is_present(std::ostream &out) const override {
+      logger::RAIIFlush raii_flusher(out);
+
       bool result = true;
       for(const auto &presence_switch : presence_switch_checks_) {
         if (auto switch_val = hw_interface::read_switch_status(presence_switch.first, out))
@@ -67,12 +69,14 @@ namespace board_interface {
         eeprom_interaction_msg_(eeprom_interaction_msg) {}
 
     bool is_present(std::ostream &out) const override {
+      logger::RAIIFlush raii_flusher(out);
       return corpro_interface_.is_present(out);
     }
 
     std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
                                      const uint_fast16_t &length,
                                      std::ostream &out) const override {
+      logger::RAIIFlush raii_flusher(out);
 
       if (!is_present(out)) {
         LOGGER_ERROR("Requested board is not present");
