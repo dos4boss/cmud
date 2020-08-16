@@ -152,6 +152,16 @@ namespace mmio_interface {
     return std::make_pair(err, result);
   }
 
+  std::pair<error_code, std::vector<uint16_t>>
+  CorrectionProcessorInterface::interact(const uint_fast8_t &status,
+                                         const std::chrono::microseconds &timeout,
+                                         const std::vector<uint16_t> &data_in,
+                                         const uint_fast16_t &number_elements_out,
+                                         std::ostream &out) const {
+    return interact<uint16_t, uint16_t>(status, timeout, data_in, number_elements_out, out);
+  }
+
+
   uint_fast16_t CorrectionProcessorInterface::get_version(std::ostream &out) const {
     const auto [err, result] = interact<uint8_t, uint16_t>(0x0C, std::chrono::seconds(1), {}, 0x30 >> 1, out);
     if (err == error_code::CommandSuccessful) {
@@ -233,9 +243,9 @@ namespace mmio_interface {
         }
         if (version >= 631) {
           if (version >= 800) {
-            out << fmt::format("Syncon ref.-divider:  {}\n", cor_board_info->unknown == 1 ? "10E016" : "RFDIV");
+            out << fmt::format("Syncon ref.-divider:   {}\n", cor_board_info->unknown == 1 ? "10E016" : "RFDIV");
           } else {
-            out << fmt::format("Frontend type:        {}\n", cor_board_info->unknown == 1 ? "RF1 = RF2" : "RF1 <> RF2");
+            out << fmt::format("Frontend type:         {}\n", cor_board_info->unknown == 1 ? "RF1 = RF2" : "RF1 <> RF2");
           }
         }
 

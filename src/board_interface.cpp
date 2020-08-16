@@ -3,6 +3,8 @@
 #include "hw_interface_helpers.hpp"
 #include "mmio_interface.hpp"
 
+#include <algorithm>
+
 namespace board_interface {
   MAKE_LOCAL_LOGGER("board_interface");
 
@@ -59,8 +61,10 @@ namespace board_interface {
   class BoardPresenceAndReadViaCor : public virtual Board {
   public:
     BoardPresenceAndReadViaCor(const board_idx &idx, char const *name, const uint_fast8_t &number,
-                               const mmio_interface::CorrectionProcessorInterface &corpro_interface)
-        : Board(idx, name, number), corpro_interface_(corpro_interface) {}
+                               const mmio_interface::CorrectionProcessorInterface &corpro_interface,
+                               const uint16_t eeprom_interaction_msg)
+      : Board(idx, name, number), corpro_interface_(corpro_interface),
+        eeprom_interaction_msg_(eeprom_interaction_msg) {}
 
     bool is_present(std::ostream &out) const override {
       return corpro_interface_.is_present(out);
@@ -68,9 +72,42 @@ namespace board_interface {
 
     std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
                                      const uint_fast16_t &length,
-                                     std::ostream &out) const override { return {}; /* TODO */ }
+                                     std::ostream &out) const override {
+
+      if (!is_present(out)) {
+        LOGGER_ERROR("Requested board is not present");
+        return {};
+      }
+
+      uint16_t remaining_length = std::min(length, uint_fast16_t(65000));
+      uint_fast16_t next_memory_address = memory_address;
+
+      std::vector<uint8_t> result(length);
+
+      while (remaining_length > 0) {
+        uint16_t next_segment_length = std::min(remaining_length, uint16_t(2032));
+
+        const std::vector<uint16_t> data_in = {eeprom_interaction_msg_,
+                                               uint16_t((next_memory_address >> 16) & 0xFFFF),
+                                               uint16_t(next_memory_address & 0xFFFF),
+                                               next_segment_length};
+
+        auto [err, data] = corpro_interface_.interact(0x1B, std::chrono::seconds(10), data_in, next_segment_length >> 1, out);
+        if (err != mmio_interface::error_code::CommandSuccessful) {
+          LOGGER_ERROR("Correction processor communication failed ({})", mmio_interface::error_code_to_string(err));
+          return {};
+        }
+        std::memcpy(result.data() + next_memory_address, data.data(), next_segment_length);
+
+        next_memory_address += next_segment_length;
+        remaining_length -= next_segment_length;
+      }
+      return result;
+    }
+
   protected:
     const mmio_interface::CorrectionProcessorInterface &corpro_interface_;
+    const uint16_t eeprom_interaction_msg_;
   };
 
   class BoardEEPROM24XX : public virtual Board {
@@ -320,10 +357,12 @@ namespace board_interface {
   const mmio_interface::CorrectionProcessorInterface cor1_interface{0},
              cor2_interface{1};
 
-  const BoardPresenceAndReadViaCor rxtx_0{RXTX_0, "RXTX", 0, cor1_interface};
-  const BoardPresenceAndReadViaCor rxtx_1{RXTX_1, "RXTX", 1, cor2_interface};
-  const BoardPresenceAndReadViaCor cor_0{COR_0, "COR", 0, cor1_interface};
-  const BoardPresenceAndReadViaCor cor_1{COR_1, "COR", 1, cor2_interface};
+  const BoardPresenceAndReadViaCor rxtx_0{RXTX_0, "RXTX", 0, cor1_interface, 0x03};
+  const BoardPresenceAndReadViaCor rxtx_1{RXTX_1, "RXTX", 1, cor2_interface, 0x03};
+  const BoardPresenceAndReadViaCor cor_0{COR_0, "COR", 0, cor1_interface, 0x08};
+  const BoardPresenceAndReadViaCor cor_1{COR_1, "COR", 1, cor2_interface, 0x08};
+  const BoardPresenceAndReadViaCor rxif3_0{RXIF3_0, "RXIF3", 0, cor1_interface, 0x12};
+  const BoardPresenceAndReadViaCor rxif3_1{RXIF3_1, "RXIF3", 0, cor2_interface, 0x12};
 
   const std::array<std::reference_wrapper<const Board>, 14> boards = {
                                                                   //    {REF, "REF", 0},

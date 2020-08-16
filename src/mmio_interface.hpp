@@ -39,6 +39,8 @@ namespace mmio_interface {
                              CommunicationError = -30,
   };
 
+  std::string error_code_to_string(const error_code &err);
+
 
   class CorrectionProcessorInterface : MMIOInterface {
   public:
@@ -50,6 +52,12 @@ namespace mmio_interface {
     bool is_present(std::ostream &out) const;
     uint_fast16_t get_version(std::ostream &out) const;
     void get_board_info(std::ostream &out) const;
+
+    std::pair<error_code, std::vector<uint16_t>>
+    interact(const uint_fast8_t &status, const std::chrono::microseconds &timeout,
+             const std::vector<uint16_t> &data_in, const uint_fast16_t &number_elements_out,
+             std::ostream &out) const;
+
 
   protected:
     error_code wait_for_status_or_timeout(const uint_fast8_t &status,
