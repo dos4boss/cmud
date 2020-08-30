@@ -138,6 +138,11 @@ int main(int argc, char *argv[]) {
                               },
     "Get correction processor status 2");
 
+  rootMenu->Insert("cor_sck", [](std::ostream &out) {
+                                board_interface::cor1_interface.self_check(out);
+                              },
+    "Run correction processor self check");
+
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(seconds));

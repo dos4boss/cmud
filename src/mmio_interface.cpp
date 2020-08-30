@@ -375,7 +375,7 @@ namespace mmio_interface {
         for (std::uint_fast8_t k = 0; k < 3; ++k) {
           out << fmt::format(" {:0.2f}dBm", cor_status->level_if_io_arr[k]);
           if (k == cor_status->stared_idx)
-            out << " *";
+            out << "* ";
         }
         out << " ]";
       }
@@ -538,7 +538,7 @@ namespace mmio_interface {
                          cor_status_2->lo1_frequency / 1.0E3);
 
       if (cor_status_2->subsid_outer_border < std::abs(cor_status_2->subsid_freq_offset))
-        out << "inactive\n";
+        out << "inactive\n";  //TODO on default startup setting that one is reported wrongly
       else
         out << "  active\n";
 
@@ -566,6 +566,7 @@ namespace mmio_interface {
                            cor_status_2->filter_dev_if1_high, cor_status_2->filter_dev_if1_low,
                            cor_status_2->filter_dev_if3_pre, cor_status_2->filter_dev_if3_narrow,
                            cor_status_2->filter_dev_saw);
+        out << fmt::format("Applic. mode (ID{:02})  : ", cor_status_2->application_mode);
         out << application_mode_to_string(cor_status_2->application_mode, rx_tx) << "\n";
         out << fmt::format("CoPro Path           : {:}\n"
                            "IqIf Path            : {:}\n"
@@ -575,6 +576,17 @@ namespace mmio_interface {
                            cor_status_2->if_signal_mode);
       }
 
+    } else
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+  }
+
+  void CorrectionProcessorInterface::self_check(std::ostream &out) const {
+    const auto [err, result] = interact<uint16_t, uint16_t>(
+        0x4C, std::chrono::seconds(1), {}, 0x70C >> 1, out);
+    if (err == error_code::CommandSuccessful) {
+      for (std::size_t k = 0; k < result.size(); ++k)
+        out << fmt::format("{:04X} ", result[k]);
     } else
       LOGGER_ERROR("Correction processor communication failed ({})",
                    error_code_to_string(err));
