@@ -581,10 +581,33 @@ namespace mmio_interface {
                    error_code_to_string(err));
   }
 
+  struct self_check_result {
+    uint8_t id;
+    uint8_t action;
+    uint8_t idx;
+    uint8_t unknown;
+    uint16_t min_val;
+    uint16_t max_val;
+    uint16_t fmdv;
+    double meas_val;
+  } __attribute__((packed));
+
   void CorrectionProcessorInterface::self_check(std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+
     const auto [err, result] = interact<uint16_t, uint16_t>(
         0x4C, std::chrono::seconds(1), {}, 0x70C >> 1, out);
     if (err == error_code::CommandSuccessful) {
+      uint32_t *count = (uint32_t*)result.data();
+
+      out << "Read " << *count << " diag values" << std::endl;
+
+      struct self_check_result *self_check_result = (struct self_check_result*)(result.data() + 2);
+
+      out << fmt::format("ID: {:} Action: {:} Idx: {:} Unknown: {:}, min_val: {:}, max_val: {:}, fmdv: {:}, meas_val: {:}",
+                         self_check_result->id, self_check_result->action, self_check_result->idx, self_check_result->unknown,
+                         self_check_result->min_val, self_check_result->max_val, self_check_result->fmdv, self_check_result->meas_val);
+
       for (std::size_t k = 0; k < result.size(); ++k)
         out << fmt::format("{:04X} ", result[k]);
     } else
