@@ -592,24 +592,75 @@ namespace mmio_interface {
     double meas_val;
   } __attribute__((packed));
 
+  struct diag_type {
+    std::string_view name;
+    std::string_view unit;
+  };
+
+  constexpr std::array<diag_type, 38> diag_translation =
+    {{{"DIAG+28V", "V"},
+      {"DIAG+12V", "V"},
+      {"DIAG-8V", "V"},
+      {"DIAG+5V", "V"},
+      {"DIAG+3.3V", "V"},
+      {"DIAG-5V", "V"},
+      {"DIAG-12V", "V"},
+      {"DIAG+0.8V", "V"},
+      {"VTEMP_BM (TX-RF)", "Deg C"},
+      {"5VREF", "V"},
+      {"VFILTTX (Notch)", "V"},
+      {"THRESHOLD", "V"},
+      {"VGAINRX", "V"},
+      {"VGAINTX", "V"},
+      {"POW", "V"},
+      {"POWIF3", "V"},
+      {"TXLO1TUNEDIAG", "V"},
+      {"TXLO3LEVDIAG", "V"},
+      {"TXLO3TUNEDIAG", "V"},
+      {"LO2TUNEDIAG", "V"},
+      {"LO2LEVDIAG", "V"},
+      {"TRIPLDIAG", "V"},
+      {"VTEMP_BO (TX-IF)", "Deg C"},
+      {"TXLO1LEVDIAG", "V"},
+      {"RXLO1TUNEDIAG", "V"},
+      {"RXLO3LEVDIAG", "V"},
+      {"RXLO3TUNEDIAG", "V"},
+      {"LO0LEVDIAG", "V"},
+      {"LO0TUNEDIAG", "V"},
+      {"VTEMP_AM (RX-RF)", "Deg C"},
+      {"RXLO1LEVDIAG", "V"},
+      {"VTEMP_AO (RX-IF)", "Deg C"},
+      {"VFILTTX (Pass)", "V"},
+      {"TXIF3LEV", "V"},
+      {"TXIF3REF", "V"},
+      {"DIAG+8VTX", "V"},
+      {"DIAG+8VRX", "V"},
+      {"DIAG+6VT", "V"}}};
+
   void CorrectionProcessorInterface::self_check(std::ostream &out) const {
     logger::RAIIFlush raii_flush(out);
 
     const auto [err, result] = interact<uint16_t, uint16_t>(
         0x4C, std::chrono::seconds(1), {}, 0x70C >> 1, out);
     if (err == error_code::CommandSuccessful) {
-      uint32_t *count = (uint32_t*)result.data();
+      uint8_t *count = (uint8_t*)result.data();
+      if (count > 100) {
+        LOGGER_ERROR("Count is indicating more diagnosis results than maximally available.");
+        return;
+      }
 
-      out << "Read " << *count << " diag values" << std::endl;
+      out << "ID Name               Action    FMDV    Min Limit   Max Limit   Meas. Val  \n";
+      for (uint_fast8_t idx = 0; idx < count; ++idx) {
+        struct self_check_result *self_check_result = (struct self_check_result*)(result.data() + 2 + (9 * idx));
+        const uint8_t translation_idx = self_check_result->idx - 1;
+        std::string name = "UNKNOWN NAME";
+        if (translation_idx < diag_translation.size())
+          name = diag_translation[translation_idx].name;
+        out << fmt::format("{:2d} {:-16s} : {:3d}    {:8.3f}   {:8.3f}    {:8.3f}    {:8.3f}\n",
+                           self_check_result->id, name, self_check_result->action, self_check_result->fmdv / 1.0E3,
+                           self_check_result->min_val / 1.0E3, self_check_result->max_val / 1.0E3, self_check_result->meas_val);
 
-      struct self_check_result *self_check_result = (struct self_check_result*)(result.data() + 2);
-
-      out << fmt::format("ID: {:} Action: {:} Idx: {:} Unknown: {:}, min_val: {:}, max_val: {:}, fmdv: {:}, meas_val: {:}",
-                         self_check_result->id, self_check_result->action, self_check_result->idx, self_check_result->unknown,
-                         self_check_result->min_val, self_check_result->max_val, self_check_result->fmdv, self_check_result->meas_val);
-
-      for (std::size_t k = 0; k < result.size(); ++k)
-        out << fmt::format("{:04X} ", result[k]);
+      }
     } else
       LOGGER_ERROR("Correction processor communication failed ({})",
                    error_code_to_string(err));
