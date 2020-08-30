@@ -641,16 +641,16 @@ namespace mmio_interface {
     logger::RAIIFlush raii_flush(out);
 
     const auto [err, result] = interact<uint16_t, uint16_t>(
-        0x4C, std::chrono::seconds(1), {}, 0x70C >> 1, out);
+        0x4C, std::chrono::seconds(10), {}, 0x70C >> 1, out);
     if (err == error_code::CommandSuccessful) {
       uint8_t *count = (uint8_t*)result.data();
-      if (count > 100) {
+      if (*count > 100) {
         LOGGER_ERROR("Count is indicating more diagnosis results than maximally available.");
         return;
       }
 
       out << "ID Name               Action    FMDV    Min Limit   Max Limit   Meas. Val  \n";
-      for (uint_fast8_t idx = 0; idx < count; ++idx) {
+      for (uint_fast8_t idx = 0; idx < *count; ++idx) {
         struct self_check_result *self_check_result = (struct self_check_result*)(result.data() + 2 + (9 * idx));
         const uint8_t translation_idx = self_check_result->idx - 1;
         std::string name = "UNKNOWN NAME";
