@@ -586,9 +586,9 @@ namespace mmio_interface {
     uint8_t action;
     uint8_t idx;
     uint8_t unknown;
-    uint16_t min_val;
-    uint16_t max_val;
-    uint16_t fmdv;
+    int16_t min_val;
+    int16_t max_val;
+    int16_t fmdv;
     double meas_val;
   } __attribute__((packed));
 
@@ -654,12 +654,21 @@ namespace mmio_interface {
         struct self_check_result *self_check_result = (struct self_check_result*)(result.data() + 2 + (9 * idx));
         const uint8_t translation_idx = self_check_result->idx - 1;
         std::string name = "UNKNOWN NAME";
+        double scale = 1.;
         if (translation_idx < diag_translation.size())
           name = diag_translation[translation_idx].name;
-        out << fmt::format("{:2d} {:-16s} : {:3d}    {:8.3f}   {:8.3f}    {:8.3f}    {:8.3f}\n",
-                           self_check_result->id, name, self_check_result->action, self_check_result->fmdv / 1.0E3,
-                           self_check_result->min_val / 1.0E3, self_check_result->max_val / 1.0E3, self_check_result->meas_val);
-
+        if (diag_translation[translation_idx].unit == "Deg C")
+          scale = 100.;
+        out << fmt::format("{:2d} {:16s} : {:3d}    {:8.3f}   {:8.3f}    {:8.3f}    {:8.3f}",
+                           self_check_result->id, name, self_check_result->action,
+                           self_check_result->fmdv * scale / 1000.,
+                           self_check_result->min_val * scale / 1000.,
+                           self_check_result->max_val * scale / 1000.,
+                           self_check_result->meas_val * scale);
+        if ((self_check_result->meas_val < self_check_result->min_val / 1000.) ||
+            (self_check_result->meas_val > self_check_result->max_val / 1000.))
+          out << "  false";
+        out << "\n";
       }
     } else
       LOGGER_ERROR("Correction processor communication failed ({})",
