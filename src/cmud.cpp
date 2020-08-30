@@ -107,6 +107,37 @@ int main(int argc, char *argv[]) {
                    },
                    "Get correction processor board info");
 
+  rootMenu->Insert("cor_gs",
+                   [](std::ostream &out, const std::string &rx_tx_str) {
+                     mmio_interface::rx_tx rx_tx_;
+                     if (rx_tx_str == "RX")
+                       rx_tx_ = mmio_interface::rx_tx::RX;
+                     else if (rx_tx_str == "TX")
+                       rx_tx_ = mmio_interface::rx_tx::TX;
+                     else {
+                       out << "Invalid selection (" << rx_tx_str << "). It must be 'RX' or 'TX'.";
+                       return;
+                     }
+
+                     board_interface::cor1_interface.get_status(rx_tx_, out);
+                   },
+                   "Get correction processor status");
+
+  rootMenu->Insert("cor_gs2", [](std::ostream &out, const std::string &rx_tx_str) {
+                                mmio_interface::rx_tx rx_tx_;
+                                if (rx_tx_str == "RX")
+                                  rx_tx_ = mmio_interface::rx_tx::RX;
+                                else if (rx_tx_str == "TX")
+                                  rx_tx_ = mmio_interface::rx_tx::TX;
+                                else {
+                                  out << "Invalid selection (" << rx_tx_str
+                                      << "). It must be 'RX' or 'TX'.";
+                                  return;
+                                }
+                                board_interface::cor1_interface.get_status_2(rx_tx_, out);
+                              },
+    "Get correction processor status 2");
+
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(seconds));

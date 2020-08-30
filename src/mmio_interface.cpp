@@ -272,10 +272,14 @@ namespace mmio_interface {
                            cor_board_info->run_state,
                            cor_board_info->fpga_type);
         if (version >= 650) {
-          out << fmt::format("User correction RX:   RF4IN:  {:b}, RF2IN:  {:b}, RF1IN:  {:b}\n"
-                             "User correction TX:   RF3OUT: {:b}, RF2OUT: {:b}, RF1OUT: {:b}\n",
-                             cor_board_info->user_correction_rx & 4, cor_board_info->user_correction_rx & 2, cor_board_info->user_correction_rx & 1,
-                             cor_board_info->user_correction_tx & 4, cor_board_info->user_correction_tx & 2, cor_board_info->user_correction_tx & 1);
+          out << fmt::format("User correction RX:    RF4IN:  {:b}, RF2IN:  {:b}, RF1IN:  {:b}\n"
+                             "User correction TX:    RF3OUT: {:b}, RF2OUT: {:b}, RF1OUT: {:b}\n",
+                             cor_board_info->user_correction_rx & 4,
+                             cor_board_info->user_correction_rx & 2,
+                             cor_board_info->user_correction_rx & 1,
+                             cor_board_info->user_correction_tx & 4,
+                             cor_board_info->user_correction_tx & 2,
+                             cor_board_info->user_correction_tx & 1);
         }
         if (version >= 631) {
           if (version >= 800) {
@@ -289,6 +293,291 @@ namespace mmio_interface {
       else
         LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
     }
+  }
+
+  struct cor_status {
+    uint16_t operation_mode;
+    uint16_t meas_mode;
+    uint16_t connector;
+    uint16_t active_channel;
+    uint16_t next_active_channel;
+    uint16_t edit_channel;
+    uint16_t background_operation;
+    double frequency;
+    double wideband_level;
+    double narrowband_level;
+    double alternate_level;
+    double level_first_mixer;
+    double level_if_io;
+    double fe_temperature;
+    double iqif_temperature;
+    double rxtx_rf_temperature;
+    double rxtx_if_temperature;
+    uint16_t meas_mode_1;
+    uint16_t rf_gain_bank_1;
+    uint16_t rf_gain_bank_2;
+    uint16_t if_coarse_setting_bank_1;
+    uint16_t if_coarse_setting_bank_2;
+    uint16_t if_fine_setting_bank_1;
+    uint16_t if_fine_setting_bank_2;
+    uint16_t stared_idx;
+    double level_if_io_arr[3];
+    double external_gain;
+    double if_amp_switch_level;
+  } __attribute__((packed));
+
+  void CorrectionProcessorInterface::get_status(const rx_tx rx_tx, std::ostream &out) const {
+    const auto version = get_version(out);
+
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x0B, std::chrono::seconds(1), {rx_tx}, 0x96 >> 1, out);
+    struct cor_status *cor_status = (struct cor_status*)result.data();
+    if (err == error_code::CommandSuccessful) {
+      out << fmt::format("Operation Mode       :       0x{:04X}\n"
+                         "Connector            :       0x{:04X}\n",
+                         cor_status->operation_mode,
+                         cor_status->connector);
+
+      if (version < 640) {
+        out << fmt::format("Measurement Mode 0   :       0x{:04X}\n"
+                           "Measurement Mode 1   :       0x{:04X}\n",
+                           cor_status->meas_mode,
+                           cor_status->meas_mode_1);
+      } else {
+        out << fmt::format("External Gain        :      {:7.2f} dBm\n"
+                           "IF Amp. Switch Level :      {:7.2f} dBm\n",
+                           cor_status->external_gain,
+                           cor_status->if_amp_switch_level);
+      }
+
+      out << fmt::format("Active Channel       :         {:4}\n"
+                         "Next Active Channel  :         {:4}\n"
+                         "Edit Channel         :         {:4}\n"
+                         "Background Operation :         {:4}\n"
+                         "Frequency            : {:12.7f} MHz\n"
+                         "Wideband Level       :      {:7.2f} dBm\n"
+                         "Narrowband Level     :      {:7.2f} dBm\n"
+                         "Alternate Level      :      {:7.2f} dB\n"
+                         "Level at 1st mixer   :      {:7.2f} dBm\n"
+                         "Level at IF I/O      :      {:7.2f} dBm",
+                         cor_status->active_channel,
+                         cor_status->next_active_channel,
+                         cor_status->edit_channel,
+                         cor_status->background_operation,
+                         cor_status->frequency / 1.0E6,
+                         cor_status->wideband_level,
+                         cor_status->narrowband_level,
+                         cor_status->alternate_level,
+                         cor_status->level_first_mixer,
+                         cor_status->level_if_io);
+
+      if (version >= 630) {
+        out << "  [";
+        for (std::uint_fast8_t k = 0; k < 3; ++k) {
+          out << fmt::format(" {:0.2f}dBm", cor_status->level_if_io_arr[k]);
+          if (k == cor_status->stared_idx)
+            out << " *";
+        }
+        out << " ]";
+      }
+
+      out << fmt::format("\nFE Temperature       :      {:7.2f} °C\n"
+                         "IqIf Temperature     :      {:7.2f} °C\n"
+                         "RXTX RF Temperature  :      {:7.2f} °C\n"
+                         "RXTX IF Temperature  :      {:7.2f} °C\n"
+                         "Hardware Settings    :       Bank1    Bank2\n"
+                         "RF-Gain              :      0x{:04X}   0x{:04X}\n"
+                         "IF-Coarse-Setting    :      {:X}/{:4}   {:X}/{:4}\n"
+                         "IF-Fine-Setting      :        {:4}     {:4}\n",
+                         cor_status->fe_temperature,
+                         cor_status->iqif_temperature,
+                         cor_status->rxtx_rf_temperature,
+                         cor_status->rxtx_if_temperature,
+                         cor_status->rf_gain_bank_1,
+                         cor_status->rf_gain_bank_2,
+                         cor_status->if_coarse_setting_bank_1 >> 10,
+                         cor_status->if_coarse_setting_bank_1 & 0x3FF,
+                         cor_status->if_coarse_setting_bank_2 >> 10,
+                         cor_status->if_coarse_setting_bank_2 & 0x3FF,
+                         cor_status->if_fine_setting_bank_1,
+                         cor_status->if_fine_setting_bank_2);
+
+    }
+    else
+      LOGGER_ERROR("Correction processor communication failed ({})", error_code_to_string(err));
+  }
+
+  struct cor_status_2 {
+    uint16_t operation_mode;
+    uint16_t measurement_mode[5];
+    uint16_t active_channel;
+    uint16_t next_active_channel;
+    uint16_t edit_channel;
+    double frequency;
+    uint16_t subsid_supr_mode;
+    double subsid_outer_border;
+    double subsid_inner_border;
+    double subsid_freq_offset;
+    double lo1_frequency;
+    double lo3_frequency;
+    double if1_frequency;
+    double if2_frequency;
+    double if3_frequency;
+    uint16_t subsid_active_chan;
+    uint16_t filter_group_id;
+    double filter_band_dev_low;
+    double filter_band_dev_med;
+    double filter_band_dev_high;
+    double filter_band_dev_vhigh;
+    double filter_dev_if1_high;
+    double filter_dev_if1_low;
+    double filter_dev_if3_pre;
+    double filter_dev_if3_narrow;
+    double filter_dev_saw;
+    uint16_t field_0xa8[6];
+    uint16_t corpo_path;
+    uint16_t iqif_path;
+    uint16_t if_signal_mode;
+    uint16_t application_mode;
+  } __attribute__((packed));
+
+
+  std::string_view filter_group_id_to_string(const decltype(cor_status_2::filter_group_id)& filter_group_id) {
+    switch(filter_group_id) {
+    case 0:
+      return "10M7   NB: WIDE\n";
+    case 1:
+      return "10M7   NB: 300K\n";
+    case 2:
+      return "10M7   NB: NOTCH\n";
+    case 3:
+      return "7M68   NB: WIDE\n";
+    case 4:
+      return "10M0   NB: WIDE\n";
+    case 5:
+      return "10M0   NB: 2M00\n";
+    case 6:
+      return "10M0   NB: 300K\n";
+    case 7:
+      return "10M7   NB: 2M00\n";
+    default:
+      return " UNKNOWN!\n";
+    }
+  }
+
+  std::string_view application_mode_to_string(const decltype(cor_status_2::application_mode) &application_mode,
+                                              const rx_tx &rx_tx) {
+    if (rx_tx == rx_tx::RX) {
+      switch (application_mode) {
+      case 0:
+        return "IF3 = 10.7 MHz, Pd = 1.385 MHz, IF2 = 486.515MHz, fix";
+      case 1:
+        return "IF3 = 7.68 MHz, Pd = 1.385 MHz, IF2 = 486.765MHz, fix";
+      case 2:
+        return "IF3 = 10.0 MHz, Pd = 1.385 MHz, IF2 = 485.830MHz, fix";
+      case 3:
+        return "IF3 = 10.7 MHz, Pd = 69.25 kHz, IF2 = 487.215MHz, var";
+      case 4:
+        return "IF3 = 7.68 MHz, Pd = 69.25 MHz, IF2 = 486.765MHz, var";
+      case 5:
+        return "IF3 = 7.68 MHz, Pd = 69.25 MHz, IF2 = 487.873MHz, var";
+      default:
+        return "Not defined yet";
+      }
+    } else {
+      switch (application_mode) {
+      case 0:
+        return "Default";
+      case 1:
+        return "AMPS";
+      case 2:
+        return "Bluetooth";
+      case 3:
+        return "Low rate FM";
+      case 4:
+        return "IF3 = 15.36 MHz, Pd = 1.385 MHz, IF2 = fix";
+      default:
+        return "Not defined yet";
+      }
+    }
+  }
+
+  void CorrectionProcessorInterface::get_status_2(const rx_tx rx_tx, std::ostream &out) const {
+    const auto version = get_version(out);
+
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x51, std::chrono::seconds(1), {rx_tx}, 0xBC >> 1, out);
+    struct cor_status_2 *cor_status_2 = (struct cor_status_2*)result.data();
+    if (err == error_code::CommandSuccessful) {
+      if (version < 700) {
+        out << fmt::format("Operation Mode       :    0x{:04X}\n"
+                           "Measurement Mode 0..4:    0x{:04X}   0x{:04X}   0x{:04X}   0x{:04X}   0x{:04X}\n"
+                           "Active Channel       :         {:4}\n"
+                           "Next Active Channel  :         {:4}\n"
+                           "Edit Channel         :         {:4}\n"
+                           "Frequency            : {:12.7f} MHz\n",
+                           cor_status_2->operation_mode,
+                           cor_status_2->measurement_mode[0], cor_status_2->measurement_mode[1],
+                           cor_status_2->measurement_mode[2], cor_status_2->measurement_mode[3],
+                           cor_status_2->measurement_mode[4],
+                           cor_status_2->active_channel,
+                           cor_status_2->next_active_channel,
+                           cor_status_2->edit_channel,
+                           cor_status_2->frequency / 1.0E3);
+      }
+
+      out << fmt::format("IF1 frequency        : {:12.7f} MHz\n"
+                         "IF2 frequency        : {:12.7f} MHz\n"
+                         "IF3 frequency        : {:12.7f} MHz\n"
+                         "LO3 frequency        : {:12.7f} MHz\n"
+                         "\nFollowing is only valid if subsidiary suppression is active:\n"
+                         "LO1 frequency        : {:12.7f} MHz\n"
+                         "Subsid. Suppression  :     ",
+                         cor_status_2->if1_frequency / 1.0E3,
+                         cor_status_2->if2_frequency / 1.0E3,
+                         cor_status_2->if3_frequency / 1.0E3,
+                         cor_status_2->lo3_frequency / 1.0E3,
+                         cor_status_2->lo1_frequency / 1.0E3);
+
+      if (cor_status_2->subsid_outer_border < std::abs(cor_status_2->subsid_freq_offset))
+        out << "inactive\n";
+      else
+        out << "  active\n";
+
+      out << fmt::format("Subsid. Suppr. Mode  :         {:4}\n"
+                         "Subsid. Active Chan. :         {:4}\n"
+                         "Subsid. Freq. Offset : {:12.3f} kHz\n"
+                         "Subsid. Inner Bound  : {:12.3f} kHz\n"
+                         "Subsid. Outer Bound  : {:12.3f} kHz\n",
+                         cor_status_2->subsid_supr_mode,
+                         cor_status_2->subsid_active_chan,
+                         cor_status_2->subsid_freq_offset,
+                         cor_status_2->subsid_inner_border,
+                         cor_status_2->subsid_outer_border);
+
+      if (version >= 700) {
+        out << fmt::format("Filter Group (ID{:02})  : PRE: ", cor_status_2->filter_group_id);
+        out << filter_group_id_to_string(cor_status_2->filter_group_id);
+        out << fmt::format("Filter-Band dev.     : Low:     {:+6.2f} dB  Med:       {:+6.2f} dB\n"
+                           "                       High:    {:+6.2f} dB  VHigh:     {:+6.2f} dB\n"
+                           "Single-Filter dev.   : If1High: {:+6.2f} dB  If1Low:    {:+6.2f} dB\n"
+                           "                       IF3Pre:  {:+6.2f} dB  If3Narrow: {:+6.2f} dB\n"
+                           "                       SAW:     {:+6.2f} dB\n",
+                           cor_status_2->filter_band_dev_low, cor_status_2->filter_band_dev_med,
+                           cor_status_2->filter_band_dev_high, cor_status_2->filter_band_dev_vhigh,
+                           cor_status_2->filter_dev_if1_high, cor_status_2->filter_dev_if1_low,
+                           cor_status_2->filter_dev_if3_pre, cor_status_2->filter_dev_if3_narrow,
+                           cor_status_2->filter_dev_saw);
+        out << application_mode_to_string(cor_status_2->application_mode, rx_tx) << "\n";
+        out << fmt::format("CoPro Path           : {:}\n"
+                           "IqIf Path            : {:}\n"
+                           "If Signal Mode       : {:}\n",
+                           cor_status_2->corpo_path,
+                           cor_status_2->iqif_path,
+                           cor_status_2->if_signal_mode);
+      }
+
+    } else
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
   }
 
 }; /* namespace mmio_interface */

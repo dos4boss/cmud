@@ -76,6 +76,11 @@ namespace mmio_interface {
 
   std::string error_code_to_string(const error_code &err);
 
+  enum rx_tx : uint16_t {
+                         RX = 0,
+                         TX = 1
+  };
+
 
   class CorrectionProcessorInterface : MMIOInterface {
   public:
@@ -87,6 +92,8 @@ namespace mmio_interface {
     bool is_present(std::ostream &out) const;
     uint_fast16_t get_version(std::ostream &out) const;
     void get_board_info(std::ostream &out) const;
+    void get_status(const rx_tx rx_tx, std::ostream &out) const;
+    void get_status_2(const rx_tx rx_tx, std::ostream &out) const;
 
     std::pair<error_code, std::vector<uint16_t>>
     interact(const uint_fast8_t &status, const std::chrono::microseconds &timeout,
