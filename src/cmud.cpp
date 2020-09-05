@@ -143,6 +143,31 @@ int main(int argc, char *argv[]) {
                               },
     "Run correction processor self check");
 
+  rootMenu->Insert("cor_wss",
+                   [](std::ostream &out, const std::string &switch_id_str, const std::string &switch_state_str) {
+                     board_interface::cor1_interface.write_switch_state(switch_id_str, switch_state_str, out);
+                   },
+                   "Write correction processor switch state");
+
+  rootMenu->Insert("cor_rss",
+                   [](std::ostream &out, const std::string &switch_id_str) {
+                     board_interface::cor1_interface.read_switch_state(switch_id_str, out);
+                   },
+                   "Read correction processor switch state");
+
+  rootMenu->Insert("cor_wsv",
+                   [](std::ostream &out, const std::string &switch_id_str, const std::string &switch_state_str) {
+                     board_interface::cor1_interface.write_switch_value(switch_id_str, switch_state_str, out);
+                   },
+                   "Write correction processor switch value");
+
+
+  rootMenu->Insert("cor_rsv",
+                   [](std::ostream &out, const std::string &switch_id_str) {
+                     board_interface::cor1_interface.read_switch_value(switch_id_str, out);
+                   },
+                   "Read correction processor switch value");
+
   rootMenu->Insert("sleep", [](std::ostream &out, const unsigned seconds) {
     out << "Sleeping for " << seconds << " seconds." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(seconds));

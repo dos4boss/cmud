@@ -1,11 +1,11 @@
-#include "logger.hpp"
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
-
-#include <stdexcept>
-
 #include "mmio_interface.hpp"
+#include "logger.hpp"
+
+#include <fcntl.h>
+#include <gsl/gsl-lite.hpp>
+#include <stdexcept>
+#include <sys/mman.h>
+#include <unistd.h>
 
 namespace mmio_interface {
   MAKE_LOCAL_LOGGER("mmio");
@@ -329,7 +329,11 @@ namespace mmio_interface {
   void CorrectionProcessorInterface::get_status(const rx_tx rx_tx, std::ostream &out) const {
     const auto version = get_version(out);
 
-    const auto [err, result] = interact<uint16_t, uint16_t>(0x0B, std::chrono::seconds(1), {rx_tx}, 0x96 >> 1, out);
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x0B,
+                                                            std::chrono::seconds(1),
+                                                            {to_underlying(rx_tx)},
+                                                            0x96 >> 1,
+                                                            out);
     struct cor_status *cor_status = (struct cor_status*)result.data();
     if (err == error_code::CommandSuccessful) {
       out << fmt::format("Operation Mode       :       0x{:04X}\n"
@@ -504,7 +508,11 @@ namespace mmio_interface {
   void CorrectionProcessorInterface::get_status_2(const rx_tx rx_tx, std::ostream &out) const {
     const auto version = get_version(out);
 
-    const auto [err, result] = interact<uint16_t, uint16_t>(0x51, std::chrono::seconds(1), {rx_tx}, 0xBC >> 1, out);
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x51,
+                                                            std::chrono::seconds(1),
+                                                            {to_underlying(rx_tx)},
+                                                            0xBC >> 1,
+                                                            out);
     struct cor_status_2 *cor_status_2 = (struct cor_status_2*)result.data();
     if (err == error_code::CommandSuccessful) {
       if (version < 700) {
@@ -669,10 +677,558 @@ namespace mmio_interface {
             (self_check_result->meas_val > self_check_result->max_val / 1000.))
           out << "  false";
         out << "\n";
+
       }
     } else
       LOGGER_ERROR("Correction processor communication failed ({})",
                    error_code_to_string(err));
   }
 
-}; /* namespace mmio_interface */
+
+  struct set_frequency {
+    double frequency;
+    uint16_t rx_tx;
+    uint16_t frequency_band;
+  } __attribute__((packed));
+
+  template <typename StructT, typename VectorT>
+  std::vector<VectorT> struct_to_vector(const StructT &struct_) {
+    const auto ptr = reinterpret_cast<const VectorT*>(&struct_);
+    return std::vector<VectorT>(ptr, ptr + (sizeof(StructT) / sizeof(VectorT)));
+  }
+
+  template <typename StructT>
+  std::vector<uint8_t> struct_to_vector_8(const StructT &struct_) {
+    return struct_to_vector<StructT, uint8_t>(struct_);
+  }
+
+  template <typename StructT>
+  std::vector<uint16_t> struct_to_vector_16(const StructT &struct_) {
+    return struct_to_vector<StructT, uint16_t>(struct_);
+  }
+
+  void CorrectionProcessorInterface::set_frequency(const double& frequency,
+                                                   const rx_tx& rx_tx,
+                                                   const frequency_band& frequency_band,
+                                                   std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+
+    const struct set_frequency set_frequency_ = {frequency,
+                                                 to_underlying(rx_tx),
+                                                 to_underlying(frequency_band)};
+
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x40,
+                                                            std::chrono::seconds(1),
+                                                            struct_to_vector_16(set_frequency_),
+                                                            0,
+                                                            out);
+    if (err != error_code::CommandSuccessful)
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+  }
+
+  struct switch_id_translation {
+    std::string_view name;
+    switch_id id;
+  };
+
+  struct switch_state_translation {
+    std::string_view name;
+    switch_state state;
+  };
+
+  static const std::array<switch_id_translation, 174> switch_id_translations = {
+   {{"RXPATH", switch_id::RXPATH}, // 0x0001
+    {"RXBWFLT", switch_id::RXBWFLT}, // 0x0002
+    {"RXSELFLT", switch_id::RXSELFLT}, // 0x0003
+    {"RXDET1", switch_id::RXDET1}, // 0x0004
+    {"RXDET2", switch_id::RXDET2}, // 0x0005
+    {"RXDET3", switch_id::RXDET3}, // 0x0006
+    {"RXSHRES", switch_id::RXSHRES}, // 0x0007
+    {"RXIF3OUT", switch_id::RXIF3OUT}, // 0x0008
+    {"RXIF1ATT", switch_id::RXIF1ATT}, // 0x0009
+    {"RXSPEED", switch_id::RXSPEED}, // 0x000A
+    {"RXFILTER", switch_id::RXFILTER}, // 0x000B
+    {"RXDETECTOR", switch_id::RXDETECTOR}, // 0x000C
+    {"RXRFATT0", switch_id::RXRFATT0}, // 0x000D
+    {"RXRFATT1", switch_id::RXRFATT1}, // 0x000E
+    {"RXRFATT2", switch_id::RXRFATT2}, // 0x000F
+    {"RXRFATT3", switch_id::RXRFATT3}, // 0x0010
+    {"RXRFATT4", switch_id::RXRFATT4}, // 0x0011
+    {"RXRFATT5", switch_id::RXRFATT5}, // 0x0012
+    {"RXRFATT6", switch_id::RXRFATT6}, // 0x0013
+    {"RXRFAMP", switch_id::RXRFAMP}, // 0x0014
+    {"RXRFLFGAIN", switch_id::RXRFLFGAIN}, // 0x0015
+    {"RXRFSTEPATT", switch_id::RXRFSTEPATT}, // 0x0016
+    {"RXIFLCU", switch_id::RXIFLCU}, // 0x0017
+    {"RXIFGAIN0", switch_id::RXIFGAIN0}, // 0x0018
+    {"RXIFGAIN1", switch_id::RXIFGAIN1}, // 0x0019
+    {"RXIFGAIN", switch_id::RXIFGAIN}, // 0x001A
+    {"RXFRHIGHIF", switch_id::RXFRHIGHIF}, // 0x001B
+    {"RXFRHIGHRF", switch_id::RXFRHIGHRF}, // 0x001C
+    {"RXFR2700", switch_id::RXFR2700}, // 0x001D
+    {"RXFRLOWRF", switch_id::RXFRLOWRF}, // 0x001E
+    {"RXFRLO1EN", switch_id::RXFRLO1EN}, // 0x001F
+    {"RXFRVCO1", switch_id::RXFRVCO1}, // 0x0020
+    {"RXFRVCO2", switch_id::RXFRVCO2}, // 0x0021
+    {"RXFRPDEN", switch_id::RXFRPDEN}, // 0x0022
+    {"RXFRTUNE", switch_id::RXFRTUNE}, // 0x0023
+    {"RXFROFFSET", switch_id::RXFROFFSET}, // 0x0024
+    {"RXFRLO3EN", switch_id::RXFRLO3EN}, // 0x0025
+    {"RXFRNCO", switch_id::RXFRNCO}, // 0x0026
+    {"RXLO3DATAACQ", switch_id::RXLO3DATAACQ}, // 0x0027
+    {"RXLO3MODE1", switch_id::RXLO3MODE1}, // 0x0028
+    {"RXLO3MODE2", switch_id::RXLO3MODE2}, // 0x0029
+    {"RXLO3PDPOL", switch_id::RXLO3PDPOL}, // 0x002A
+    {"RXLO3STANDBY1", switch_id::RXLO3STANDBY1}, // 0x002B
+    {"RXLO3STANDBY2", switch_id::RXLO3STANDBY2}, // 0x002C
+    {"RXLO3ANTIBL1", switch_id::RXLO3ANTIBL1}, // 0x002D
+    {"RXLO3ANTIBL2", switch_id::RXLO3ANTIBL2}, // 0x002E
+    {"RXLO3PREAMPSEL", switch_id::RXLO3PREAMPSEL}, // 0x002F
+    {"RXLO3SGLDUAL", switch_id::RXLO3SGLDUAL}, // 0x0030
+    {"RXLO3PORT1", switch_id::RXLO3PORT1}, // 0x0031
+    {"RXLO3PDCUR1", switch_id::RXLO3PDCUR1}, // 0x0032
+    {"RXLO3PDCUR2", switch_id::RXLO3PDCUR2}, // 0x0033
+    {"RXLO3PDCUR3", switch_id::RXLO3PDCUR3}, // 0x0034
+    {"RXLO3MODE", switch_id::RXLO3MODE}, // 0x0035
+    {"RXLO3ANTIBL", switch_id::RXLO3ANTIBL}, // 0x0036
+    {"RXLO3PDCUR", switch_id::RXLO3PDCUR}, // 0x0037
+    {"TXIF2IN", switch_id::TXIF2IN}, // 0x0039
+    {"TXCAL", switch_id::TXCAL}, // 0x003A
+    {"TXSPEED", switch_id::TXSPEED}, // 0x003B
+    {"TXRFATT0", switch_id::TXRFATT0}, // 0x003C
+    {"TXRFATT1", switch_id::TXRFATT1}, // 0x003D
+    {"TXRFATT2", switch_id::TXRFATT2}, // 0x003E
+    {"TXRFATT3", switch_id::TXRFATT3}, // 0x003F
+    {"TXRFATT4", switch_id::TXRFATT4}, // 0x0040
+    {"TXRFATT5", switch_id::TXRFATT5}, // 0x0041
+    {"TXRFATT6", switch_id::TXRFATT6}, // 0x0042
+    {"TXRFAMP", switch_id::TXRFAMP}, // 0x0043
+    {"TXFEATT", switch_id::TXFEATT}, // 0x0044
+    {"TXRFSTEPATT", switch_id::TXRFSTEPATT}, // 0x0045
+    {"TXIFLCU", switch_id::TXIFLCU}, // 0x0046
+    {"TXFRHIGHIF", switch_id::TXFRHIGHIF}, // 0x0047
+    {"TXFRHIGHRF", switch_id::TXFRHIGHRF}, // 0x0048
+    {"TXFR2700", switch_id::TXFR2700}, // 0x0049
+    {"TXFRLOWRF", switch_id::TXFRLOWRF}, // 0x004A
+    {"TXFRLO1EN", switch_id::TXFRLO1EN}, // 0x004B
+    {"TXFRVCO1", switch_id::TXFRVCO1}, // 0x004C
+    {"TXFRVCO2", switch_id::TXFRVCO2}, // 0x004D
+    {"TXFRPDEN", switch_id::TXFRPDEN}, // 0x004E
+    {"TXFRTUNE", switch_id::TXFRTUNE}, // 0x004F
+    {"TXFROFFSET", switch_id::TXFROFFSET}, // 0x0050
+    {"TXFRLO3EN", switch_id::TXFRLO3EN}, // 0x0051
+    {"TXFRNCO", switch_id::TXFRNCO}, // 0x0052
+    {"TXLO3DATAACQ", switch_id::TXLO3DATAACQ}, // 0x0053
+    {"TXLO3MODE1", switch_id::TXLO3MODE1}, // 0x0054
+    {"TXLO3MODE2", switch_id::TXLO3MODE2}, // 0x0055
+    {"TXLO3PDPOL", switch_id::TXLO3PDPOL}, // 0x0056
+    {"TXLO3STANDBY1", switch_id::TXLO3STANDBY1}, // 0x0057
+    {"TXLO3STANDBY2", switch_id::TXLO3STANDBY2}, // 0x0058
+    {"TXLO3ANTIBL1", switch_id::TXLO3ANTIBL1}, // 0x0059
+    {"TXLO3ANTIBL2", switch_id::TXLO3ANTIBL2}, // 0x005A
+    {"TXLO3PREAMPSEL", switch_id::TXLO3PREAMPSEL}, // 0x005B
+    {"TXLO3SGLDUAL", switch_id::TXLO3SGLDUAL}, // 0x005C
+    {"TXLO3PORT1", switch_id::TXLO3PORT1}, // 0x005D
+    {"TXLO3PDCUR1", switch_id::TXLO3PDCUR1}, // 0x005E
+    {"TXLO3PDCUR2", switch_id::TXLO3PDCUR2}, // 0x005F
+    {"TXLO3PDCUR3", switch_id::TXLO3PDCUR3}, // 0x0060
+    {"TXLO3MODE", switch_id::TXLO3MODE}, // 0x0061
+    {"TXLO3ANTIBL", switch_id::TXLO3ANTIBL}, // 0x0062
+    {"TXLO3PDCUR", switch_id::TXLO3PDCUR}, // 0x0063
+    {"BITTRIPL", switch_id::BITTRIPL}, // 0x0065
+    {"BITLO2EN", switch_id::BITLO2EN}, // 0x0066
+    {"BITREFDIV", switch_id::BITREFDIV}, // 0x0067
+    {"LO0EN", switch_id::LO0EN}, // 0x0068
+    {"RXSTEPEN", switch_id::RXSTEPEN}, // 0x006F
+    {"TXSTEPEN", switch_id::TXSTEPEN}, // 0x0070
+    {"RXPOWEN", switch_id::RXPOWEN}, // 0x0071
+    {"MODETXPOW", switch_id::MODETXPOW}, // 0x0072
+    {"RXACKEN", switch_id::RXACKEN}, // 0x0073
+    {"MODETXACK", switch_id::MODETXACK}, // 0x0074
+    {"LEDON", switch_id::LEDON}, // 0x0075
+    {"ADCDIAGMUX0", switch_id::ADCDIAGMUX0}, // 0x0078
+    {"ADCDIAGMUX1", switch_id::ADCDIAGMUX1}, // 0x0079
+    {"ADCDIAGMUX2", switch_id::ADCDIAGMUX2}, // 0x007A
+    {"ADCDIAGADR", switch_id::ADCDIAGADR}, // 0x007B
+    {"ADCSGL", switch_id::ADCSGL}, // 0x007C
+    {"ADCUNI", switch_id::ADCUNI}, // 0x007D
+    {"ADCPD", switch_id::ADCPD}, // 0x007E
+    {"ADCBUSY", switch_id::ADCBUSY}, // 0x007F
+    {"SERRXVALID", switch_id::SERRXVALID}, // 0x0080
+    {"SERRXOVFLW", switch_id::SERRXOVFLW}, // 0x0081
+    {"SERRXIRQEN", switch_id::SERRXIRQEN}, // 0x0082
+    {"SERRXCLEAR", switch_id::SERRXCLEAR}, // 0x0083
+    {"SERTXBUSY", switch_id::SERTXBUSY}, // 0x0084
+    {"SERTXLENGTH", switch_id::SERTXLENGTH}, // 0x0085
+    {"COMLO3RXEN", switch_id::COMLO3RXEN}, // 0x0088
+    {"COMLO3TXEN", switch_id::COMLO3TXEN}, // 0x0089
+    {"COMLO3DATA", switch_id::COMLO3DATA}, // 0x008A
+    {"COMLO3CLOCK", switch_id::COMLO3CLOCK}, // 0x008B
+    {"RXLO1JEN", switch_id::RXLO1JEN}, // 0x008E
+    {"RXLO1UPDOWN", switch_id::RXLO1UPDOWN}, // 0x008F
+    {"RXLO1LOCK", switch_id::RXLO1LOCK}, // 0x0090
+    {"RXFEAMP", switch_id::RXFEAMP}, // 0x0091
+    {"RXBUSY", switch_id::RXBUSY}, // 0x0095
+    {"TXBUSY", switch_id::TXBUSY}, // 0x0096
+    {"RXACTEN", switch_id::RXACTEN}, // 0x0097
+    {"TXACTEN", switch_id::TXACTEN}, // 0x0098
+    {"RXPHASE", switch_id::RXPHASE}, // 0x0099
+    {"TXPHASE", switch_id::TXPHASE}, // 0x009A
+    {"FMEN", switch_id::FMEN}, // 0x009B
+    {"FMATT1", switch_id::FMATT1}, // 0x009C
+    {"FMATT2", switch_id::FMATT2}, // 0x009D
+    {"RXIF3PREFILT", switch_id::RXIF3PREFILT}, // 0x009E
+    {"TXPATH", switch_id::TXPATH}, // 0x009F
+    {"RXLO0EN", switch_id::RXLO0EN}, // 0x00A0
+    {"TXLO0EN", switch_id::TXLO0EN}, // 0x00A1
+    {"RXSETEDGE", switch_id::RXSETEDGE}, // 0x00A2
+    {"TXSETEDGE", switch_id::TXSETEDGE}, // 0x00A3
+    {"ADCDOUT", switch_id::ADCDOUT}, // 0x00A4
+    {"ADCCLK", switch_id::ADCCLK}, // 0x00A5
+    {"ADCDIN", switch_id::ADCDIN}, // 0x00A6
+    {"ADCSTRB", switch_id::ADCSTRB}, // 0x00A7
+    {"RXIF2OUT", switch_id::RXIF2OUT}, // 0x00A8
+    {"RXLO1EXT", switch_id::RXLO1EXT}, // 0x00A9
+    {"SWITCHLEV", switch_id::SWITCHLEV}, // 0x00AA
+    {"RXSTATIFGAIN0", switch_id::RXSTATIFGAIN0}, // 0x00AB
+    {"RXSTATIFGAIN1", switch_id::RXSTATIFGAIN1}, // 0x00AC
+    {"RXSTATIFGAIN", switch_id::RXSTATIFGAIN}, // 0x00AD
+    {"RXRELOAD", switch_id::RXRELOAD}, // 0x00AE
+    {"TXRELOAD", switch_id::TXRELOAD}, // 0x00AF
+    {"RXPRELOWBANDPASS", switch_id::RXPRELOWBANDPASS}, // 0x00B1
+    {"RXPREBANDPASS", switch_id::RXPREBANDPASS}, // 0x00B2
+    {"SELDET2AB", switch_id::SELDET2AB}, // 0x00B3
+    {"RXNARROWFLT", switch_id::RXNARROWFLT}, // 0x00B4
+    {"RXIF3FILT_MODULE", switch_id::RXIF3FILT_MODULE}, // 0x00B5
+    {"RXLOWRFA", switch_id::RXLOWRFA}, // 0x00BA
+    {"RXLOWRFB", switch_id::RXLOWRFB}, // 0x00BB
+    {"RXCALPATH", switch_id::RXCALPATH}, // 0x00BC
+    {"RXSELSH1_3", switch_id::RXSELSH1_3}, // 0x00BD
+    {"RXSELSH13_2", switch_id::RXSELSH13_2}, // 0x00BE
+    {"RXSELPOWINT1_3", switch_id::RXSELPOWINT1_3}, // 0x00C0
+    {"RXSELPOWINT13_2", switch_id::RXSELPOWINT13_2}, // 0x00C1
+    {"ADCDIAGMUX3", switch_id::ADCDIAGMUX3}, // 0x00C3
+    {"ACKSETTIME", switch_id::ACKSETTIME}, // 0x00DA
+    {"ACKBUSYTIME", switch_id::ACKBUSYTIME} // 0x00DB
+   }};
+
+  static const std::array<switch_state_translation, 98> switch_state_translations = {
+   {{"ADP28V", switch_state::ADP28V}, // 0x0001
+    {"ADP12V", switch_state::ADP12V}, // 0x0002
+    {"ADM8V", switch_state::ADM8V}, // 0x0003
+    {"ADP5V", switch_state::ADP5V}, // 0x0004
+    {"ADP3V3", switch_state::ADP3V3}, // 0x0005
+    {"ADM5V", switch_state::ADM5V}, // 0x0006
+    {"ADM12V", switch_state::ADM12V}, // 0x0007
+    {"ADP2V", switch_state::ADP2V}, // 0x0008
+    {"ADVTEMPBM", switch_state::ADVTEMPBM}, // 0x0009
+    {"ADREF5V", switch_state::ADREF5V}, // 0x000A
+    {"ADVFILTTX", switch_state::ADVFILTTX}, // 0x000B
+    {"ADTHRESHOLD", switch_state::ADTHRESHOLD}, // 0x000C
+    {"ADVGAINRX", switch_state::ADVGAINRX}, // 0x000D
+    {"ADVGAINTX", switch_state::ADVGAINTX}, // 0x000E
+    {"ADIF3POWPEAK", switch_state::ADIF3POWPEAK}, // 0x000F
+    {"ADIF3POWCUR", switch_state::ADIF3POWCUR}, // 0x0010
+    {"ADTXLO1TUNE", switch_state::ADTXLO1TUNE}, // 0x0011
+    {"ADTXLO3LEV", switch_state::ADTXLO3LEV}, // 0x0012
+    {"ADTXLO3TUNE", switch_state::ADTXLO3TUNE}, // 0x0013
+    {"ADLO2TUNE", switch_state::ADLO2TUNE}, // 0x0014
+    {"ADLO2LEV", switch_state::ADLO2LEV}, // 0x0015
+    {"ADTRIPL", switch_state::ADTRIPL}, // 0x0016
+    {"ADVTEMPBO", switch_state::ADVTEMPBO}, // 0x0017
+    {"ADTXLO1LEV", switch_state::ADTXLO1LEV}, // 0x0018
+    {"ADRXLO1TUNE", switch_state::ADRXLO1TUNE}, // 0x0019
+    {"ADRXLO3LEV", switch_state::ADRXLO3LEV}, // 0x001A
+    {"ADRXLO3TUNE", switch_state::ADRXLO3TUNE}, // 0x001B
+    {"ADLO0LEV", switch_state::ADLO0LEV}, // 0x001C
+    {"ADLO0TUNE", switch_state::ADLO0TUNE}, // 0x001D
+    {"ADVTEMPAM", switch_state::ADVTEMPAM}, // 0x001E
+    {"ADRXLO1LEV", switch_state::ADRXLO1LEV}, // 0x001F
+    {"ADVTEMPAO", switch_state::ADVTEMPAO}, // 0x0020
+    {"OFF", switch_state::OFF}, // 0x0041
+    {"ON", switch_state::ON}, // 0x0042
+    {"LOW", switch_state::LOW}, // 0x0043
+    {"HIGH", switch_state::HIGH}, // 0x0044
+    {"NARROW", switch_state::NARROW}, // 0x0045
+    {"WIDE", switch_state::WIDE}, // 0x0046
+    {"DISABLED", switch_state::DISABLED}, // 0x0047
+    {"ENABLED", switch_state::ENABLED}, // 0x0048
+    {"HOLD", switch_state::HOLD}, // 0x0049
+    {"RESET", switch_state::RESET}, // 0x004A
+    {"INT", switch_state::INT}, // 0x004B
+    {"EXT", switch_state::EXT}, // 0x004C
+    {"ASYNC", switch_state::ASYNC}, // 0x004D
+    {"SYNC", switch_state::SYNC}, // 0x004E
+    {"NEGATIVE", switch_state::NEGATIVE}, // 0x004F
+    {"POSITIVE", switch_state::POSITIVE}, // 0x0050
+    {"STANDBY", switch_state::STANDBY}, // 0x0051
+    {"ACTIVE", switch_state::ACTIVE}, // 0x0052
+    {"SINGLE", switch_state::SINGLE}, // 0x0053
+    {"DUAL", switch_state::DUAL}, // 0x0054
+    {"TEST", switch_state::TEST}, // 0x0055
+    {"ICPM", switch_state::ICPM}, // 0x0058
+    {"PW1_3", switch_state::PW1_3}, // 0x0059
+    {"PW5", switch_state::PW5}, // 0x005A
+    {"PW10", switch_state::PW10}, // 0x005B
+    {"PW13", switch_state::PW13}, // 0x005C
+    {"CUR0_175", switch_state::CUR0_175}, // 0x005D
+    {"CUR0_7", switch_state::CUR0_7}, // 0x005E
+    {"CUR0_35", switch_state::CUR0_35}, // 0x005F
+    {"CUR1_4", switch_state::CUR1_4}, // 0x0060
+    {"CUR0_25", switch_state::CUR0_25}, // 0x0061
+    {"CUR1", switch_state::CUR1}, // 0x0062
+    {"CUR0_5", switch_state::CUR0_5}, // 0x0063
+    {"CUR2", switch_state::CUR2}, // 0x0064
+    {"FILTER1", switch_state::FILTER1}, // 0x0065
+    {"FILTER2", switch_state::FILTER2}, // 0x0066
+    {"NCOREG1", switch_state::NCOREG1}, // 0x0067
+    {"NCOREG2", switch_state::NCOREG2}, // 0x0068
+    {"IFGAIN0", switch_state::IFGAIN0}, // 0x0069
+    {"IFGAIN1", switch_state::IFGAIN1}, // 0x006A
+    {"IFGAIN2", switch_state::IFGAIN2}, // 0x006B
+    {"IFGAIN3", switch_state::IFGAIN3}, // 0x006C
+    {"READY", switch_state::READY}, // 0x006D
+    {"BUSY", switch_state::BUSY}, // 0x006E
+    {"POWERDN", switch_state::POWERDN}, // 0x006F
+    {"INTCLK", switch_state::INTCLK}, // 0x0071
+    {"EXTCLK", switch_state::EXTCLK}, // 0x0072
+    {"CLEAR", switch_state::CLEAR}, // 0x0073
+    {"UNIPOLAR", switch_state::UNIPOLAR}, // 0x0074
+    {"BIPOLAR", switch_state::BIPOLAR}, // 0x0075
+    {"DOWN", switch_state::DOWN}, // 0x0076
+    {"UP", switch_state::UP}, // 0x0077
+    {"UNLOCKED", switch_state::UNLOCKED}, // 0x0078
+    {"LOCKED", switch_state::LOCKED}, // 0x0079
+    {"PREFILT10M7", switch_state::PREFILT10M7}, // 0x007A
+    {"PREFILT10M0", switch_state::PREFILT10M0}, // 0x007B
+    {"PREFILT7M68", switch_state::PREFILT7M68}, // 0x007C
+    {"PREFILTBAND", switch_state::PREFILTBAND}, // 0x007D
+    {"NBFILT300K", switch_state::NBFILT300K}, // 0x007E
+    {"NBFILT2M0", switch_state::NBFILT2M0}, // 0x007F
+    {"DET2A", switch_state::DET2A}, // 0x0080
+    {"DET2B", switch_state::DET2B}, // 0x0081
+    {"PATH1", switch_state::PATH1}, // 0x0082
+    {"PATH3", switch_state::PATH3}, // 0x0083
+    {"PATH13", switch_state::PATH13}, // 0x0084
+    {"PATH2", switch_state::PATH2}, // 0x0085
+   }};
+
+  std::optional<std::string_view> switch_id_to_string(const switch_id &switch_id) {
+    auto result = std::find_if(switch_id_translations.begin(),
+                               switch_id_translations.end(),
+                               [&switch_id](const switch_id_translation& trans) {
+                                 return trans.id == switch_id;
+                               });
+    if (result != switch_id_translations.end())
+      return result->name;
+    else
+      return std::nullopt;
+  }
+
+  std::optional<switch_id> string_to_switch_id(const std::string& str) {
+    auto result = std::find_if(switch_id_translations.begin(),
+                               switch_id_translations.end(),
+                               [&str](const switch_id_translation &trans) {
+                                 return trans.name == str;
+                               });
+    if (result != switch_id_translations.end())
+      return result->id;
+    else
+      return std::nullopt;
+  }
+
+  std::optional<std::string_view> switch_state_to_string(const switch_state &switch_state) {
+    auto result = std::find_if(switch_state_translations.begin(),
+                               switch_state_translations.end(),
+                               [&switch_state](const switch_state_translation &trans) {
+                                 return trans.state == switch_state;
+                               });
+    if (result != switch_state_translations.end())
+      return result->name;
+    else
+      return std::nullopt;
+  }
+
+  std::optional<switch_state> string_to_switch_state(const std::string &str) {
+    auto result = std::find_if(switch_state_translations.begin(),
+                               switch_state_translations.end(),
+                               [&str](const switch_state_translation &trans) {
+                                 return trans.name == str;
+                               });
+    if (result != switch_state_translations.end())
+      return result->state;
+    else
+      return std::nullopt;
+  }
+
+  std::optional<switch_id> safe_switch_id_from_string(const std::string &switch_id_str) {
+    const auto switch_id_opt = string_to_switch_id(switch_id_str);
+    if (!switch_id_opt.has_value()) {
+      try {
+        using sw_id_underlying = std::underlying_type_t<switch_id>;
+        return static_cast<switch_id>(gsl::narrow<sw_id_underlying>(std::stoul(switch_id_str, 0, 0)));
+      } catch (std::exception &e) {
+        LOGGER_ERROR("Failed to convert '{:}' to a useable switch_id ({:}).",
+                     switch_id_str, e.what());
+        return std::nullopt;
+      }
+    } else
+      return switch_id_opt.value();
+  }
+
+  std::optional<switch_state> safe_switch_state_from_string(const std::string &switch_state_str) {
+    const auto switch_state_opt = string_to_switch_state(switch_state_str);
+    if (!switch_state_opt.has_value()) {
+      try {
+        using sw_state_underlying = std::underlying_type_t<switch_state>;
+        return static_cast<switch_state>(gsl::narrow<sw_state_underlying>(std::stoul(switch_state_str, 0, 0)));
+      } catch (std::exception &e) {
+        LOGGER_ERROR(
+            "Failed to convert '{:}' to a writeable switch_state ({:}).",
+            switch_state_str, e.what());
+        return std::nullopt;
+      }
+    }
+    else
+      return switch_state_opt.value();
+  }
+
+  std::optional<switch_state> CorrectionProcessorInterface::read_switch_state(const switch_id &switch_id,
+                                                                              std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x17,
+                                                            std::chrono::seconds(1),
+                                                            {to_underlying(switch_id)},
+                                                            2 >> 1,
+                                                            out);
+    if (err == error_code::CommandSuccessful) {
+      return static_cast<switch_state>(result[0]);
+    } else {
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+      return std::nullopt;
+    }
+  }
+
+  void CorrectionProcessorInterface::read_switch_state(const std::string &switch_id_str,
+                                                       std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    const auto switch_id_opt = safe_switch_id_from_string(switch_id_str);
+    if (!switch_id_opt.has_value())
+      return;
+
+    if (auto switch_state_opt = read_switch_state(switch_id_opt.value(), out)) {
+      const auto switch_id_str_opt = switch_id_to_string(switch_id_opt.value());
+      const auto switch_state_str_opt = switch_state_to_string(switch_state_opt.value());
+
+      out << fmt::format("switch {}: {}",
+                         switch_id_str_opt.value_or("unknown"),
+                         switch_state_str_opt.value_or(std::to_string(to_underlying(switch_state_opt.value()))));
+    }
+  }
+
+  std::optional<std::underlying_type_t<switch_state>>
+  CorrectionProcessorInterface::read_switch_value(const switch_id &switch_id,
+                                                  std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x19,
+                                                            std::chrono::seconds(1),
+                                                            {to_underlying(switch_id)},
+                                                            2 >> 1,
+                                                            out);
+    if (err == error_code::CommandSuccessful) {
+      return result[0];
+    } else {
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+      return std::nullopt;
+    }
+  }
+
+  void CorrectionProcessorInterface::read_switch_value(const std::string& switch_id_str,
+                                                       std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    const auto switch_id_opt = safe_switch_id_from_string(switch_id_str);
+    if (!switch_id_opt.has_value())
+      return;
+
+    if (auto switch_value_opt = read_switch_value(switch_id_opt.value(), out)) {
+      const auto switch_id_str_opt = switch_id_to_string(switch_id_opt.value());
+
+      out << fmt::format("switch {}: 0x{:04X} ({})",
+                         switch_id_str_opt.value_or("unknown"),
+                         switch_id_opt.value(),
+                         switch_id_opt.value());
+    }
+  }
+
+  struct write_switch_state {
+    switch_id switch_id;
+    switch_state switch_state;
+  } __attribute__((packed));
+
+  void CorrectionProcessorInterface::write_switch_state(const switch_id &switch_id,
+                                                        const switch_state &switch_state,
+                                                        std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    struct write_switch_state write_switch_state_ = {switch_id, switch_state};
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x16,
+                                                            std::chrono::seconds(1),
+                                                            {struct_to_vector_16(write_switch_state_)},
+                                                            0,
+                                                            out);
+    if (err != error_code::CommandSuccessful)
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+  }
+
+  void CorrectionProcessorInterface::write_switch_state(const std::string &switch_id_str,
+                                                        const std::string &switch_state_str,
+                                                        std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    const auto switch_id_opt = safe_switch_id_from_string(switch_id_str);
+    if (!switch_id_opt.has_value())
+      return;
+
+    const auto switch_state_opt = safe_switch_state_from_string(switch_state_str);
+    if (!switch_state_opt.has_value())
+      return;
+
+    write_switch_state(switch_id_opt.value(), switch_state_opt.value(), out);
+  }
+
+  void CorrectionProcessorInterface::write_switch_value(const switch_id &switch_id,
+                                                        const switch_state &switch_state,
+                                                        std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    struct write_switch_state write_switch_state_ = {switch_id, switch_state};
+    const auto [err, result] = interact<uint16_t, uint16_t>(0x18,
+                                                            std::chrono::seconds(1),
+                                                            {struct_to_vector_16(write_switch_state_)},
+                                                            0,
+                                                            out);
+    if (err != error_code::CommandSuccessful)
+      LOGGER_ERROR("Correction processor communication failed ({})",
+                   error_code_to_string(err));
+  }
+
+  void CorrectionProcessorInterface::write_switch_value(const std::string &switch_id_str,
+                                                        const std::string &switch_state_str,
+                                                        std::ostream &out) const {
+    logger::RAIIFlush raii_flush(out);
+    const auto switch_id_opt = safe_switch_id_from_string(switch_id_str);
+    if (!switch_id_opt.has_value())
+      return;
+
+    const auto switch_state_opt =
+        safe_switch_state_from_string(switch_state_str);
+    if (!switch_state_opt.has_value())
+      return;
+
+    write_switch_value(switch_id_opt.value(), switch_state_opt.value(), out);
+  }
+
+  }; /* namespace mmio_interface */

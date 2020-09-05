@@ -124,6 +124,7 @@ namespace board_interface {
     std::vector<uint8_t> read_eeprom(const uint_fast16_t &memory_address,
                                      const uint_fast16_t &length,
                                      std::ostream &out) const override {
+      (void)out;
       return i2c_interface::i2c_bitbangers[i2c_interface_].get().read_eeprom(i2c_address_, memory_address, length);
     }
 
