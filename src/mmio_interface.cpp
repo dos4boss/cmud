@@ -1123,7 +1123,7 @@ namespace mmio_interface {
       const auto switch_id_str_opt = switch_id_to_string(switch_id_opt.value());
       const auto switch_state_str_opt = switch_state_to_string(switch_state_opt.value());
 
-      out << fmt::format("switch {}: {}",
+      out << fmt::format("switch {}: {}\n",
                          switch_id_str_opt.value_or("unknown"),
                          switch_state_str_opt.value_or(std::to_string(to_underlying(switch_state_opt.value()))));
     }
@@ -1158,10 +1158,10 @@ namespace mmio_interface {
     if (auto switch_value_opt = read_switch_value(switch_id_opt.value(), out)) {
       const auto switch_id_str_opt = switch_id_to_string(switch_id_opt.value());
 
-      out << fmt::format("switch {}: 0x{:04X} ({})",
+      out << fmt::format("switch {}: 0x{:04X} ({})\n",
                          switch_id_str_opt.value_or("unknown"),
-                         switch_id_opt.value(),
-                         switch_id_opt.value());
+                         switch_value_opt.value(),
+                         switch_value_opt.value());
     }
   }
 
